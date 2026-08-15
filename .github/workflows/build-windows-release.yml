@@ -115,7 +115,7 @@ jobs:
           $env:UFVS_LAUNCH_BROWSER = "0"
           $env:UFVS_NO_PAUSE = "1"
           $launcher = Join-Path $verify "Start uFVS.bat"
-          $commandLine = '/d /s /c ""' + $launcher + '""'
+          $commandLine = '/d /c call "' + $launcher + '"'
           $stdoutLog = Join-Path $env:RUNNER_TEMP "ufvs-start-batch.stdout.log"
           $stderrLog = Join-Path $env:RUNNER_TEMP "ufvs-start-batch.stderr.log"
           $process = Start-Process -FilePath $env:ComSpec `
