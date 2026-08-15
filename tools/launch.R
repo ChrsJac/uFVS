@@ -38,4 +38,6 @@ if (length(missing)) {
 
 chosen_port <- suppressWarnings(as.integer(Sys.getenv("UFVS_PORT", unset = "0")))
 if (is.na(chosen_port) || chosen_port <= 0L) chosen_port <- shiny::randomPort()
-shiny::runApp(root, port = chosen_port, launch.browser = TRUE, host = "127.0.0.1")
+launch_browser <- tolower(Sys.getenv("UFVS_LAUNCH_BROWSER", unset = "true")) %in%
+  c("1", "true", "yes", "y")
+shiny::runApp(root, port = chosen_port, launch.browser = launch_browser, host = "127.0.0.1")
