@@ -1,0 +1,11 @@
+Project: Forest Vegetation Simulator (FVS)
+Repository: https://github.com/USDAForestService/ForestVegetationSimulator
+Pinned development/build revision: a17ee9728fe3273e9526d66e66fb4a79bdba6c10
+Official license source: https://github.com/USDAForestService/ForestVegetationSimulator/blob/main/license.txt
+Pinned license file: https://github.com/USDAForestService/ForestVegetationSimulator/blob/a17ee9728fe3273e9526d66e66fb4a79bdba6c10/license.txt
+
+The uFVS source tables and documented structural behavior are derived or
+transcribed from the source files listed in NOTICE.md. A release BUILD_INFO.json
+records the engine revision used by that release's build workflow. The checked-in
+macOS engine predates this metadata record, so its binary-to-commit correspondence
+must not be inferred from this reference alone.

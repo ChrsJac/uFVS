@@ -115,7 +115,8 @@ application-data directory rather than beside the source or release files.
 
 ## Licensing
 
-No license has been applied to uFVS-authored code in this development checkout.
-Upstream notices and the terms of the material uFVS builds on are recorded in
-[NOTICE.md](NOTICE.md). Do not treat this repository statement as a license for
-FVS, R, R packages, or other third-party components.
+Original uFVS-authored code is released under the [MIT License](LICENSE).
+Third-party software, source material, data, and incorporated upstream code
+retain their respective licenses and terms. See [NOTICE.md](NOTICE.md) and the
+third-party notices distributed with uFVS. The MIT license does not relicense
+FVS, `rFVS`, `fvsOL`, R, R packages, or any other third-party component.

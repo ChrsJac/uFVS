@@ -1,0 +1,8 @@
+Project: R
+Source: https://www.r-project.org/
+License information: https://www.r-project.org/Licenses/
+License expression: GPL-2 | GPL-3
+
+The exact bundled R version, source archive URL, and platform are written to
+BUILD_INFO.json. The copied R distribution retains its own COPYING and other
+license/copyright files under the runtime directory.

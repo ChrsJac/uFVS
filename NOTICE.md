@@ -14,6 +14,7 @@ or carbon calculations. Those belong to FVS and are produced by FVS.
 
 - Repository: https://github.com/USDAForestService/ForestVegetationSimulator
 - Snapshot used during development: commit `a17ee9728fe3273e9526d66e66fb4a79bdba6c10`
+- Official license file: https://github.com/USDAForestService/ForestVegetationSimulator/blob/main/license.txt
 - Status: work of U.S. Federal Government employees performed as part of their
   official duties, stated by the project to be in the U.S. public domain and
   released as free and open-source software. FVS distributions may also contain
@@ -41,7 +42,9 @@ Rscript tools/extract_fvs_config.R /path/to/ForestVegetationSimulator-main
 
 - Repository: https://github.com/USDAForestService/ForestVegetationSimulator-Interface
 - Snapshot used during development: commit `7b608f8265770e70065c5d03fe4cd061699fe479`
-- License: MIT, as identified by the packages themselves.
+- License: MIT, as identified in the package metadata at
+  [`rFVS/DESCRIPTION`](https://github.com/USDAForestService/ForestVegetationSimulator-Interface/blob/main/rFVS/DESCRIPTION)
+  and [`fvsOL/DESCRIPTION`](https://github.com/USDAForestService/ForestVegetationSimulator-Interface/blob/main/fvsOL/DESCRIPTION).
 
 uFVS used this source for:
 
@@ -76,6 +79,10 @@ fvsOL, so trees are drawn the way the official interface draws them. The 2D
 profile and plan views are uFVS's own drawing code, using the same official
 tree-form parameters for crown shape and color.
 
+The directly reproduced renderer carries its upstream project, file, commit,
+and MIT attribution in `R/13_svsTree_upstream.R`. The generated keyword and
+tree-form files remain identified above and in `THIRD_PARTY/`.
+
 ## What uFVS itself contributes
 
 Interface, validation, workflow, run isolation, table and chart construction,
@@ -94,18 +101,44 @@ No FVS equation has been reimplemented, modified, or approximated.
 
 ## License for uFVS
 
-No license has been applied to uFVS-authored code.
+Original uFVS-authored code is released under the MIT License in the root
+`LICENSE` file. The copyright holder named by that license is J. Christopher
+Jacobson.
 
-Worth knowing what that means in practice: without a license, default copyright
-applies and others have no granted right to copy, modify, or redistribute the
-uFVS-authored parts. That is a perfectly normal position for a project that is
-not being handed out. It only becomes a problem if uFVS is described to others
-as open source, because that phrase implies a license that has not been granted.
-Applying one later is a single file and a line in this document.
+That license applies only to original uFVS-authored material, except where an
+individual file identifies another origin or license. It does not relicense the
+USDA Forest Vegetation Simulator, `rFVS`, `fvsOL`, R, R packages, copied
+upstream source, bundled libraries, generated upstream-derived tables, or any
+other third-party component. Those materials retain their own terms.
 
-This does not affect the upstream material above, which keeps its own terms: the
-FVS source is stated to be U.S. public domain, and the `rFVS` / `fvsOL` material
-reproduced here is MIT. Those notices must be retained however uFVS is licensed.
+Standalone releases include `THIRD_PARTY/`, which contains the pinned upstream
+references, the R metadata, and a generated inventory of the exact transitive
+R package closure and its declared license expressions. The release build also
+retains license and notice files found in those packages.
+
+## R and package redistribution
+
+The R runtime bundled in a standalone release remains under the R Project's
+`GPL-2 | GPL-3` terms. The official licensing page is
+https://www.r-project.org/Licenses/. The exact R version, source URL, package
+versions, and FVS engine files are recorded in that release's
+`BUILD_INFO.json`. R's own license and copyright files remain inside the
+bundled runtime.
+
+Package licenses are not inferred or normalized here. The release inventory is
+generated from each package's `DESCRIPTION` file, including transitive
+dependencies, and preserves package-specific license/notice files where found.
+
+## Items requiring release review
+
+Before publishing a binary release, review the generated package inventory and
+the corresponding source-archive manifest against the exact terms of each
+redistributed package. The repository does not make a blanket legal conclusion
+about source-availability obligations. Also, the checked-in macOS engine does
+not contain a machine-readable upstream commit record; a release's
+`BUILD_INFO.json` records the revision selected by its build, but the binary's
+historical provenance still requires confirmation when preparing a public
+release.
 
 ## Branding
 

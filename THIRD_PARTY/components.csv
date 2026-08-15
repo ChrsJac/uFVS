@@ -1,0 +1,5 @@
+Component,Type,Version,License,Upstream URL,Copyright/Authors,License files,Source archive URL
+uFVS-authored source,Original,0.1.0,MIT,https://github.com/ChrsJac/uFVS,J. Christopher Jacobson,LICENSE,
+USDA Forest Vegetation Simulator,FVS,a17ee9728fe3273e9526d66e66fb4a79bdba6c10,See THIRD_PARTY/FVS/license.txt,https://github.com/USDAForestService/ForestVegetationSimulator,United States Federal Government materials,license.txt,
+FVS Interface rFVS/fvsOL,FVS Interface,7b608f8265770e70065c5d03fe4cd061699fe479,MIT per package DESCRIPTION files,https://github.com/USDAForestService/ForestVegetationSimulator-Interface,USDA Forest Service,source-reference.txt,
+R runtime,R,recorded in BUILD_INFO.json,GPL-2 | GPL-3,https://www.r-project.org/,R Core Team,COPYING and runtime license files,

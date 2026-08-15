@@ -1,0 +1,294 @@
+name: Build and publish desktop releases
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FVS_REPOSITORY: https://github.com/USDAForestService/ForestVegetationSimulator.git
+  FVS_REVISION: a17ee9728fe3273e9526d66e66fb4a79bdba6c10
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    env:
+      UFVS_FVS_SOURCE_REVISION: a17ee9728fe3273e9526d66e66fb4a79bdba6c10
+      UFVS_FVS_SOURCE_URL: https://github.com/USDAForestService/ForestVegetationSimulator
+      UFVS_FVS_TOOLCHAIN: Rtools gfortran + GNU make
+    steps:
+      - name: Check out uFVS
+        uses: actions/checkout@v4
+
+      - name: Set up Windows R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.6"
+          windows-path-include-rtools: true
+          windows-path-include-mingw: true
+
+      - name: Install uFVS build packages
+        shell: Rscript {0}
+        run: |
+          install.packages(
+            c("shiny", "ggplot2", "jsonlite", "DBI", "RSQLite", "readxl", "callr", "digest"),
+            repos = "https://cloud.r-project.org",
+            dependencies = c("Depends", "Imports", "LinkingTo")
+          )
+
+      - name: Check out the pinned FVS source
+        shell: pwsh
+        run: |
+          git clone --no-checkout $env:FVS_REPOSITORY fvs-source
+          git -C fvs-source fetch --depth 1 origin $env:FVS_REVISION
+          git -C fvs-source checkout --detach $env:FVS_REVISION
+          "FVS repository: $env:FVS_REPOSITORY" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "FVS revision: $env:FVS_REVISION" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Build the official Windows FVS executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd fvs-source/bin
+          make -f makefile FVSsn.exe
+          mkdir -p "$GITHUB_WORKSPACE/engine"
+          cp -f FVSsn.exe "$GITHUB_WORKSPACE/engine/FVSsn.exe"
+          if [ -f FVSsn.dll ]; then cp -f FVSsn.dll "$GITHUB_WORKSPACE/engine/FVSsn.dll"; fi
+          if command -v ldd >/dev/null 2>&1; then
+            ldd "$GITHUB_WORKSPACE/engine/FVSsn.exe" | tee "$GITHUB_WORKSPACE/engine/FVSsn.dependencies.txt"
+            if grep -qi "not found" "$GITHUB_WORKSPACE/engine/FVSsn.dependencies.txt"; then
+              echo "The generated FVS executable has an unresolved runtime dependency." >&2
+              exit 1
+            fi
+          fi
+          file "$GITHUB_WORKSPACE/engine/FVSsn.exe"
+
+      - name: Build and test the Windows package
+        shell: pwsh
+        run: |
+          $rHome = (& Rscript -e "cat(R.home())").Trim()
+          .\tools\build_windows_release.ps1 `
+            -RHome $rHome `
+            -EngineDir "$env:GITHUB_WORKSPACE\engine" `
+            -OutDir "$env:GITHUB_WORKSPACE\release" `
+            -FvsSourceRevision $env:FVS_REVISION `
+            -FvsSourceUrl $env:FVS_REPOSITORY `
+            -FvsToolchain "Rtools gfortran + GNU make"
+
+      - name: Re-test the extracted Windows ZIP
+        shell: pwsh
+        run: |
+          $verify = Join-Path $env:RUNNER_TEMP "ufvs-windows-verify"
+          if (Test-Path $verify) { Remove-Item -LiteralPath $verify -Recurse -Force }
+          Expand-Archive -LiteralPath "$env:GITHUB_WORKSPACE\release\uFVS-Windows-x64.zip" -DestinationPath $verify -Force
+          $stagedRscript = Join-Path $verify "runtime\R\bin\Rscript.exe"
+          if (!(Test-Path $stagedRscript)) { throw "The extracted ZIP has no bundled Rscript.exe." }
+          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\release_self_test.R" --root $verify
+          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows release self-test failed." }
+          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\fvs_smoke_test.R" --root $verify --engine (Join-Path $verify "engine\FVSsn.exe")
+          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows FVS smoke test failed." }
+          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\release_http_smoke_test.R" --root $verify --port 18766
+          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows app HTTP smoke test failed." }
+          if (!(Test-Path (Join-Path $verify "Start uFVS.bat"))) { throw "Start uFVS.bat is missing." }
+          "Bundled R home: $(& $stagedRscript -e 'cat(R.home())')" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Bundled engine: $(Join-Path $verify 'engine\FVSsn.exe')" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uFVS-Windows-x64
+          path: release/uFVS-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  macos:
+    name: macOS Apple Silicon
+    runs-on: macos-14
+    env:
+      UFVS_FVS_SOURCE_REVISION: a17ee9728fe3273e9526d66e66fb4a79bdba6c10
+      UFVS_FVS_SOURCE_URL: https://github.com/USDAForestService/ForestVegetationSimulator
+      UFVS_FVS_TOOLCHAIN: checked-in arm64 FVS engine; source revision recorded for release provenance
+    steps:
+      - name: Check out uFVS
+        uses: actions/checkout@v4
+
+      - name: Set up Apple Silicon R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.6"
+
+      - name: Install uFVS build packages
+        shell: Rscript {0}
+        run: |
+          install.packages(
+            c("shiny", "ggplot2", "jsonlite", "DBI", "RSQLite", "readxl", "callr", "digest"),
+            repos = "https://cloud.r-project.org",
+            dependencies = c("Depends", "Imports", "LinkingTo")
+          )
+
+      - name: Build and test the macOS package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/build_macos_release.sh --out "$GITHUB_WORKSPACE/release" \
+            --fvs-source-revision "$FVS_REVISION"
+
+      - name: Re-test the extracted macOS ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify="$RUNNER_TEMP/ufvs-macos-verify"
+          rm -rf "$verify"
+          mkdir -p "$verify"
+          ditto -x -k "$GITHUB_WORKSPACE/release/uFVS-macOS-arm64.zip" "$verify"
+          stage=$(find "$verify" -maxdepth 1 -type d -name 'uFVS-*' -print -quit)
+          test -n "$stage"
+          test -x "$stage/runtime/Rscript"
+          test -x "$stage/uFVS.app/Contents/MacOS/uFVS"
+          UFVS_RELEASE=1 R_LIBS_USER="$stage/library" "$stage/runtime/Rscript" \
+            "$GITHUB_WORKSPACE/tools/release_self_test.R" --root "$stage"
+          UFVS_RELEASE=1 R_LIBS_USER="$stage/library" "$stage/runtime/Rscript" \
+            "$GITHUB_WORKSPACE/tools/fvs_smoke_test.R" --root "$stage" --engine "$stage/engine/FVSsn"
+          UFVS_RELEASE=1 R_LIBS_USER="$stage/library" "$stage/runtime/Rscript" \
+            "$GITHUB_WORKSPACE/tools/release_http_smoke_test.R" --root "$stage" --port 18766
+          echo "Bundled R home: $($stage/runtime/Rscript -e 'cat(R.home())')" >> "$GITHUB_STEP_SUMMARY"
+          echo "Bundled engine: $stage/engine/FVSsn" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uFVS-macOS-arm64
+          path: release/uFVS-macOS-arm64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  third_party_source:
+    name: Prepare third-party source bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out uFVS tooling
+        uses: actions/checkout@v4
+
+      - name: Set up R for source-bundle tooling
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.6"
+
+      - name: Download the macOS release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uFVS-macOS-arm64
+          path: macos-artifact
+
+      - name: Build the exact third-party source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p macos-extracted
+          unzip -q macos-artifact/uFVS-macOS-arm64.zip -d macos-extracted
+          inventory=$(find macos-extracted -path '*/THIRD_PARTY/components.csv' -print -quit)
+          notices=$(dirname "$inventory")
+          test -n "$inventory"
+          Rscript tools/download_third_party_source.R \
+            --inventory "$inventory" \
+            --notices "$notices" \
+            --out third-party-source
+          zip -qr "uFVS-${GITHUB_REF_NAME#v}-third-party-source.zip" third-party-source
+
+      - name: Upload third-party source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uFVS-third-party-source
+          path: uFVS-*-third-party-source.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success' && needs.macos.result == 'success' && needs.third_party_source.result == 'success'
+    needs: [windows, macos, third_party_source]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: uFVS-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Confirm release asset names
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release-assets/uFVS-Windows-x64.zip
+          test -s release-assets/uFVS-macOS-arm64.zip
+          test -s release-assets/uFVS-*-third-party-source.zip
+          unzip -tq release-assets/uFVS-Windows-x64.zip
+          unzip -tq release-assets/uFVS-macOS-arm64.zip
+          mkdir -p inventory-check/windows inventory-check/macos
+          unzip -q release-assets/uFVS-Windows-x64.zip -d inventory-check/windows
+          unzip -q release-assets/uFVS-macOS-arm64.zip -d inventory-check/macos
+          windows_inventory=$(find inventory-check/windows -path '*/THIRD_PARTY/components.csv' -print -quit)
+          macos_inventory=$(find inventory-check/macos -path '*/THIRD_PARTY/components.csv' -print -quit)
+          test -n "$windows_inventory"
+          test -n "$macos_inventory"
+          sort "$windows_inventory" > inventory-check/windows.csv
+          sort "$macos_inventory" > inventory-check/macos.csv
+          diff -u inventory-check/windows.csv inventory-check/macos.csv
+
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="uFVS ${GITHUB_REF_NAME}"
+          notes="Self-contained uFVS desktop release. Both platform archives were built and smoke-tested by GitHub Actions from this tag."
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --notes "$notes"
+            gh release upload "$GITHUB_REF_NAME" \
+              release-assets/uFVS-Windows-x64.zip \
+              release-assets/uFVS-macOS-arm64.zip \
+              release-assets/uFVS-*-third-party-source.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag --title "$title" --notes "$notes" \
+              release-assets/uFVS-Windows-x64.zip \
+              release-assets/uFVS-macOS-arm64.zip \
+              release-assets/uFVS-*-third-party-source.zip
+          fi
+
+      - name: Verify stable latest-download URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for asset in uFVS-Windows-x64.zip uFVS-macOS-arm64.zip; do
+            url="https://github.com/ChrsJac/uFVS/releases/latest/download/$asset"
+            destination="$RUNNER_TEMP/$asset"
+            success=0
+            for attempt in $(seq 1 12); do
+              if curl --fail --location --silent --show-error --retry 2 --output "$destination" "$url" && unzip -tq "$destination"; then
+                success=1
+                break
+              fi
+              sleep 5
+            done
+            if [ "$success" -ne 1 ]; then
+              echo "Stable release URL did not produce a valid ZIP: $url" >&2
+              exit 1
+            fi
+            echo "$url -> $(stat -c '%s' "$destination") bytes" >> "$GITHUB_STEP_SUMMARY"
+          done

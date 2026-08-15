@@ -1,0 +1,11 @@
+Project: Forest Vegetation Simulator Interface (rFVS and fvsOL)
+Repository: https://github.com/USDAForestService/ForestVegetationSimulator-Interface
+Snapshot used during development: 7b608f8265770e70065c5d03fe4cd061699fe479
+rFVS package metadata: https://github.com/USDAForestService/ForestVegetationSimulator-Interface/blob/main/rFVS/DESCRIPTION
+fvsOL package metadata: https://github.com/USDAForestService/ForestVegetationSimulator-Interface/blob/main/fvsOL/DESCRIPTION
+License declared by both package DESCRIPTION files: MIT
+
+Material reproduced or derived in uFVS includes fvsOL/parms/*.kwd,
+rFVS/R/fvsMakeKeyFile.R, fvsOL/R/svsTree.R, fvsOL/data/treeforms.RData,
+and the shared-library convention in rFVS/R/fvsLoad.R. See NOTICE.md for the
+file-level mapping.

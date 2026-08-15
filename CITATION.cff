@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use uFVS, please cite the software repository and version."
+title: "uFVS"
+type: software
+authors:
+  - family-names: Jacobson
+    given-names: "J. Christopher"
+version: "0.1.0"
+repository-code: "https://github.com/ChrsJac/uFVS"
+license: MIT

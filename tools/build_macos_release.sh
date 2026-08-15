@@ -11,17 +11,23 @@ VERSION="0.1.0"
 OUT_DIR="$ROOT/release"
 R_HOME_INPUT="${UFVS_R_HOME:-}"
 ENGINE_DIR="${UFVS_ENGINE_DIR:-$ROOT/engine}"
+FVS_SOURCE_REVISION="${UFVS_FVS_SOURCE_REVISION:-a17ee9728fe3273e9526d66e66fb4a79bdba6c10}"
+FVS_SOURCE_URL="${UFVS_FVS_SOURCE_URL:-https://github.com/USDAForestService/ForestVegetationSimulator}"
+FVS_TOOLCHAIN="${UFVS_FVS_TOOLCHAIN:-not recorded for this checked-in engine}"
 SKIP_SELF_TEST=0
+SKIP_FVS_SMOKE_TEST=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --out) OUT_DIR="$2"; shift 2 ;;
     --r-home) R_HOME_INPUT="$2"; shift 2 ;;
     --engine-dir) ENGINE_DIR="$2"; shift 2 ;;
+    --fvs-source-revision) FVS_SOURCE_REVISION="$2"; shift 2 ;;
     --skip-self-test) SKIP_SELF_TEST=1; shift ;;
+    --skip-fvs-smoke-test) SKIP_FVS_SMOKE_TEST=1; shift ;;
     -h|--help)
       sed -n '1,18p' "$0"
-      echo "Usage: $0 [--out DIR] [--r-home R_HOME] [--engine-dir DIR] [--skip-self-test]"
+      echo "Usage: $0 [--out DIR] [--r-home R_HOME] [--engine-dir DIR] [--fvs-source-revision SHA] [--skip-self-test] [--skip-fvs-smoke-test]"
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -75,13 +81,14 @@ STAGE="$TEMP_ROOT/uFVS-$VERSION-macOS-arm64"
 cleanup() { rm -rf "$TEMP_ROOT"; }
 trap cleanup EXIT INT TERM
 
-mkdir -p "$STAGE/tools" "$STAGE/engine" "$STAGE/runtime/R.framework/Versions" \
+mkdir -p "$STAGE/tools" "$STAGE/engine" "$STAGE/THIRD_PARTY" "$STAGE/runtime/R.framework/Versions" \
   "$STAGE/uFVS.app/Contents/MacOS"
-cp -p "$ROOT/app.R" "$ROOT/README.md" "$ROOT/NOTICE.md" "$STAGE/"
+cp -p "$ROOT/app.R" "$ROOT/README.md" "$ROOT/NOTICE.md" "$ROOT/LICENSE" "$ROOT/CITATION.cff" "$STAGE/"
 ditto "$ROOT/R/." "$STAGE/R"
 ditto "$ROOT/config/." "$STAGE/config"
 ditto "$ROOT/www/." "$STAGE/www"
 if [ -d "$ROOT/docs" ]; then ditto "$ROOT/docs/." "$STAGE/docs"; fi
+ditto "$ROOT/THIRD_PARTY/." "$STAGE/THIRD_PARTY"
 cp -p "$ROOT/tools/launch.R" "$STAGE/tools/launch.R"
 ditto "$ENGINE_DIR/." "$STAGE/engine"
 
@@ -100,6 +107,8 @@ chmod 755 "$STAGE/runtime/Rscript" \
   "$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/bin/R"
 
 "$BUILDER_RSCRIPT" "$ROOT/tools/stage_r_packages.R" --target "$STAGE/library"
+"$BUILDER_RSCRIPT" "$ROOT/tools/write_third_party_inventory.R" \
+  --library "$STAGE/library" --target "$STAGE/THIRD_PARTY"
 
 R_LIB="$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/lib"
 R_EXEC="$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/bin/exec/R"
@@ -187,11 +196,20 @@ cp -p "$ROOT/tools/macos_launcher.sh" "$STAGE/uFVS.app/Contents/MacOS/uFVS"
 chmod 755 "$STAGE/uFVS.app/Contents/MacOS/uFVS"
 
 "$BUILDER_RSCRIPT" "$ROOT/tools/write_build_info.R" \
-  --root "$STAGE" --platform "macOS" --architecture "arm64" --engine-dir "$STAGE/engine"
+  --root "$STAGE" --platform "macOS" --architecture "arm64" --engine-dir "$STAGE/engine" \
+  --fvs-source-revision "$FVS_SOURCE_REVISION" --fvs-source-url "$FVS_SOURCE_URL" \
+  --fvs-toolchain "$FVS_TOOLCHAIN"
 
 if [ "$SKIP_SELF_TEST" -eq 0 ]; then
   UFVS_RELEASE=1 R_LIBS_USER="$STAGE/library" "$STAGE/runtime/Rscript" \
     "$ROOT/tools/release_self_test.R" --root "$STAGE"
+fi
+
+if [ "$SKIP_FVS_SMOKE_TEST" -eq 0 ]; then
+  UFVS_RELEASE=1 R_LIBS_USER="$STAGE/library" "$STAGE/runtime/Rscript" \
+    "$ROOT/tools/fvs_smoke_test.R" --root "$STAGE" --engine "$STAGE/engine/FVSsn"
+  UFVS_RELEASE=1 R_LIBS_USER="$STAGE/library" "$STAGE/runtime/Rscript" \
+    "$ROOT/tools/release_http_smoke_test.R" --root "$STAGE" --port 18765
 fi
 
 ZIP="$OUT_DIR/uFVS-macOS-arm64.zip"
