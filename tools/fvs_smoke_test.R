@@ -13,10 +13,17 @@ value_for <- function(flag, default = "") {
 root <- value_for("--root")
 engine <- value_for("--engine", file.path(root, "engine", "FVSsn"))
 if (!nzchar(root) || !dir.exists(root)) stop("--root must name the staged release.", call. = FALSE)
-root <- normalizePath(root, mustWork = TRUE)
-engine <- normalizePath(engine, mustWork = TRUE)
-root_prefix <- paste0(root, .Platform$file.sep)
-if (!startsWith(engine, root_prefix)) stop("Smoke engine is outside the staged release.", call. = FALSE)
+canonical_path <- function(path) {
+  path <- normalizePath(path, mustWork = TRUE)
+  path <- chartr("\\\\", "/", path)
+  if (.Platform$OS.type == "windows") path <- tolower(path)
+  sub("/+$", "", path)
+}
+root <- canonical_path(root)
+engine <- canonical_path(engine)
+root_prefix <- paste0(root, "/")
+if (!(identical(engine, root) || startsWith(engine, root_prefix)))
+  stop("Smoke engine is outside the staged release.", call. = FALSE)
 
 setwd(root)
 options(ufvs.root = root, ufvs.release = TRUE)
@@ -29,8 +36,9 @@ suppressPackageStartupMessages({
 for (f in sort(list.files(file.path(root, "R"), pattern = "[.]R$", full.names = TRUE)))
   source(f)
 
-runtime_root <- normalizePath(file.path(root, "runtime"), mustWork = FALSE)
-if (!startsWith(normalizePath(R.home(), mustWork = FALSE), paste0(runtime_root, .Platform$file.sep)))
+runtime_root <- canonical_path(file.path(root, "runtime"))
+r_home <- canonical_path(R.home())
+if (!(identical(r_home, runtime_root) || startsWith(r_home, paste0(runtime_root, "/"))))
   stop("The smoke test is not using the staged R runtime: ", R.home(), call. = FALSE)
 
 stands <- data.frame(
