@@ -247,8 +247,8 @@ jobs:
           macos_inventory=$(find inventory-check/macos -path '*/THIRD_PARTY/components.csv' -print -quit)
           test -n "$windows_inventory"
           test -n "$macos_inventory"
-          sort "$windows_inventory" > inventory-check/windows.csv
-          sort "$macos_inventory" > inventory-check/macos.csv
+          sed 's/\r$//' "$windows_inventory" | sort > inventory-check/windows.csv
+          sed 's/\r$//' "$macos_inventory" | sort > inventory-check/macos.csv
           diff -u inventory-check/windows.csv inventory-check/macos.csv
 
       - name: Create or update the GitHub Release
