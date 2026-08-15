@@ -5,7 +5,7 @@ cd /d "%~dp0"
 set "UFVS_RELEASE=1"
 set "R_HOME=%~dp0runtime\R"
 set "R_LIBS_USER=%~dp0library"
-set "UFVS_PORT=0"
+if not defined UFVS_PORT set "UFVS_PORT=0"
 if not exist "%~dp0runtime\R\bin\Rscript.exe" (
   echo The uFVS bundled R runtime is missing. Re-extract the downloaded ZIP.
   pause
