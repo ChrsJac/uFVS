@@ -272,10 +272,9 @@ scenario_picker <- function(id, choices, selected, multiple = TRUE,
   if (!length(choices)) {
     return(div(class = "muted small", "No scenario has been run yet."))
   }
-  if (length(choices) == 1 && multiple) {
-    return(div(class = "muted small",
-               sprintf("Showing %s. Run another scenario to compare.", choices[1])))
-  }
+  # Keep the control visible even when only one scenario has results. This makes
+  # the result-page workflow discoverable and lets the same control expand to a
+  # multi-scenario picker as soon as another run is available.
   selectInput(id, label, choices = choices, selected = selected,
               multiple = multiple)
 }

@@ -4,6 +4,12 @@
 
 ufvs_server <- function(input, output, session) {
 
+  session_runs_dir <- ufvs_runs_dir()
+  session_dataset_dir <- file.path(ufvs_user_data_dir(), "datasets")
+  dir.create(session_runs_dir, showWarnings = FALSE, recursive = TRUE)
+
+  project_path_for <- function(name) project_file_for(name)
+
   rv <- reactiveValues(
     page = "data",
     data = NULL, expanded = NULL, issues = NULL, merch_trees = NULL,
@@ -19,7 +25,7 @@ ufvs_server <- function(input, output, session) {
     job = NULL, batch_results = list(), run_state = NULL,
     results = list(),
     project = list(name = "Untitled project", owner = "", acres = NA_real_),
-    project_file = ufvs_project_path()
+    project_file = project_path_for("Untitled project")
   )
 
   # ---- navigation ------------------------------------------------------------
@@ -82,17 +88,31 @@ ufvs_server <- function(input, output, session) {
   # ============================================================================
   # Data
   # ============================================================================
-  persist_dataset <- function(path) {
-    if (is.null(path) || !file.exists(path)) return(path)
-    d <- file.path(ufvs_user_data_dir(), "datasets")
+  persist_dataset <- function(path, paths = NULL, names = NULL) {
+    paths <- as.character(nz(paths, path))
+    paths <- paths[file.exists(paths) | dir.exists(paths)]
+    if (!length(paths)) return(list(path = path, paths = paths))
+    labels <- if (is.null(names)) basename(paths) else as.character(names)
+    if (length(labels) != length(paths)) labels <- basename(paths)
+
+    # A directory is already a stable source. The Shiny UI uploads individual
+    # files, so the normal case below copies every member of a CSV set.
+    if (length(paths) == 1L && dir.exists(paths[1]))
+      return(list(path = normalizePath(paths[1], mustWork = FALSE),
+                  paths = normalizePath(paths[1], mustWork = FALSE)))
+
+    d <- session_dataset_dir
     dir.create(d, showWarnings = FALSE, recursive = TRUE)
-    nm <- gsub("[^A-Za-z0-9._-]+", "_", basename(path))
-    dst <- file.path(d, nm)
-    same <- tryCatch(identical(normalizePath(path, mustWork = FALSE),
-                               normalizePath(dst, mustWork = FALSE)),
-                     error = function(e) FALSE)
-    if (!same) file.copy(path, dst, overwrite = TRUE)
-    if (file.exists(dst)) normalizePath(dst, mustWork = FALSE) else path
+    dsts <- vapply(seq_along(paths), function(i) {
+      nm <- gsub("[^A-Za-z0-9._-]+", "_", basename(labels[i]))
+      dst <- file.path(d, nm)
+      same <- tryCatch(identical(normalizePath(paths[i], mustWork = FALSE),
+                                 normalizePath(dst, mustWork = FALSE)),
+                       error = function(e) FALSE)
+      if (!same) file.copy(paths[i], dst, overwrite = TRUE)
+      if (file.exists(dst)) normalizePath(dst, mustWork = FALSE) else paths[i]
+    }, character(1))
+    list(path = dsts[1], paths = dsts)
   }
 
   #' Take an imported dataset into the session.
@@ -112,7 +132,9 @@ ufvs_server <- function(input, output, session) {
       rv$page <- "data"; session$sendCustomMessage("ufvs-page", "data")
       return(invisible(NULL))
     }
-    out$source$path <- persist_dataset(out$source$path)
+    kept <- persist_dataset(out$source$path, out$source$paths, out$source$names)
+    out$source$path <- kept$path
+    out$source$paths <- kept$paths
     rv$data <- out
     rv$expanded <- expand_inventory(out)
     rv$issues <- validate_project(out, rv$expanded)
@@ -125,8 +147,8 @@ ufvs_server <- function(input, output, session) {
     invisible(out)
   }
 
-  load_dataset <- function(path) {
-    out <- try(import_fvs_data(path), silent = TRUE)
+  load_dataset <- function(path, names = NULL) {
+    out <- try(import_fvs_data(path, names = names), silent = TRUE)
     if (inherits(out, "try-error")) {
       showNotification(paste("Could not read that file.", conditionMessage(attr(out, "condition"))),
                        type = "error", duration = 12)
@@ -235,7 +257,7 @@ ufvs_server <- function(input, output, session) {
   })
 
   output$proj_save_note <- renderUI({
-    p <- nz(rv$project_file, ufvs_project_path())
+    p <- nz(rv$project_file, project_path_for(rv$project$name))
     if (file.exists(p)) {
       paste("Saved locally at", p)
     } else {
@@ -244,10 +266,16 @@ ufvs_server <- function(input, output, session) {
   })
 
   output$proj_recent <- renderUI({
-    p <- ufvs_project_path()
-    if (!file.exists(p)) return(div(class = "muted small", "No local project saved yet."))
-    div(class = "muted small", "Local project available:",
-        div(class = "mono", p))
+    ps <- list_projects(ufvs_projects_dir())
+    if (!nrow(ps)) {
+      p <- ufvs_project_path()
+      if (!file.exists(p)) return(div(class = "muted small", "No local project saved yet."))
+      ps <- data.frame(name = "project.json", path = p, modified = "", stringsAsFactors = FALSE)
+    }
+    tagList(
+      div(class = "muted small", "Saved projects (newest first):"),
+      ufvs_table(utils::head(ps[, c("name", "modified")], 10)),
+      div(class = "muted small", "Open saved project loads the newest one."))
   })
 
   output$project_repro <- renderUI({
@@ -550,23 +578,23 @@ ufvs_server <- function(input, output, session) {
   # ============================================================================
   output$mg_scenario_bar <- renderUI({
     div(class = "card card-tight",
-      div(class = "bar-row",
-        div(style = "min-width:190px",
+      div(class = "mg-scenario-controls",
+        div(class = "mg-control mg-control-scenario",
           selectInput("mg_scenario", "Scenario", choices = names(rv$scenarios), selected = rv$current)),
-        div(style = "width:125px",
+        div(class = "mg-control",
           numericInput("mg_start_year", "Timeline start year", value = start_year(), step = 1)),
-        div(style = "width:150px",
+        div(class = "mg-control mg-control-age",
           numericInput("mg_stand_age", "Stand age", value = stand_age_override(),
                        min = 0, step = 1),
           div(class = "field-hint",
               if (stand_age_is_override()) "your entry"
               else if (!is.na(stand_age_override())) "from the inventory"
-              else "not set \u2014 MAI will be 0")),
-        div(style = "width:90px",
+              else "MAI off")),
+        div(class = "mg-control",
           numericInput("mg_cycles", "Cycles", value = nz(scenario()$cycles, 10), min = 1, max = 40)),
-        div(style = "width:110px",
+        div(class = "mg-control",
           numericInput("mg_cyclelen", "Cycle (yrs)", value = nz(scenario()$cycle_length, 5), min = 1, max = 20)),
-        div(class = "muted small",
+        div(class = "mg-control-summary muted small",
             sprintf("%d activities \u00b7 through %d",
                     length(scenario()$events), max(timeline_years())))))
   })
@@ -589,12 +617,14 @@ ufvs_server <- function(input, output, session) {
   #' needs.
   default_start_year <- reactive({
     if (is.null(rv$data)) return(as.integer(format(Sys.Date(), "%Y")))
-    y <- suppressWarnings(min(safe_num(rv$data$stands$INV_YEAR), na.rm = TRUE))
-    if (!is.finite(y)) as.integer(format(Sys.Date(), "%Y")) else as.integer(y)
+    vals <- if ("INV_YEAR" %in% names(rv$data$stands))
+      safe_num(rv$data$stands$INV_YEAR) else numeric(0)
+    vals <- vals[is.finite(vals)]
+    if (!length(vals)) as.integer(format(Sys.Date(), "%Y")) else as.integer(min(vals))
   })
 
   start_year <- reactive({
-    y <- nz(scenario()$start_year, NA)
+    y <- as_scalar_num(scenario()$start_year)
     if (is.na(y)) default_start_year() else as.integer(y)
   })
 
@@ -608,11 +638,12 @@ ufvs_server <- function(input, output, session) {
   #' MAI calculation off (vbase/evtstv.f), and many inventories arrive with AGE
   #' empty. Blank here means "use whatever the inventory says".
   stand_age_override <- reactive({
-    v <- rv$project$stand_age
-    if (!is.null(v) && !is.na(v)) return(as.integer(v))
+    v <- as_scalar_num(rv$project$stand_age)
+    if (!is.na(v)) return(as.integer(v))
     if (is.null(rv$data) || !"AGE" %in% names(rv$data$stands)) return(NA_integer_)
-    a <- suppressWarnings(min(safe_num(rv$data$stands$AGE), na.rm = TRUE))
-    if (!is.finite(a)) NA_integer_ else as.integer(a)
+    vals <- safe_num(rv$data$stands$AGE)
+    vals <- vals[is.finite(vals)]
+    if (!length(vals)) NA_integer_ else as.integer(min(vals))
   })
 
   observeEvent(input$mg_stand_age, {
@@ -1215,6 +1246,13 @@ ufvs_server <- function(input, output, session) {
 
   output$eng_controls <- renderUI({
     cfg <- rv$engine
+    if (ufvs_is_release()) {
+      return(tagList(
+        div(class = "msg msg-info",
+            strong("Bundled FVS engine"),
+            div(class = "small", "This release uses the platform engine shipped with uFVS.")),
+        div(class = "muted small", "Engine selection is not needed for this release.")))
+    }
     modes <- c("Not configured" = "none",
                "Bundled / auto-detected" = "bundled",
                "FVS executable" = "executable",
@@ -1227,7 +1265,10 @@ ufvs_server <- function(input, output, session) {
 
   output$eng_hint <- renderUI({
     mode <- nz(input$eng_mode, rv$engine$mode)
-    if (identical(mode, "bundled")) {
+    if (ufvs_is_release()) {
+      HTML(sprintf("Using bundled variant files in <span class='mono'>%s</span>.",
+                   ufvs_engine_dir()))
+    } else if (identical(mode, "bundled")) {
       HTML(sprintf("uFVS will use variant files in <span class='mono'>%s</span>.",
                    nz(rv$engine$path, ufvs_engine_dir())))
     } else if (identical(mode, "executable")) {
@@ -1244,6 +1285,11 @@ ufvs_server <- function(input, output, session) {
   })
 
   observeEvent(input$eng_save, {
+    if (ufvs_is_release()) {
+      rv$engine <- load_engine_config()
+      showNotification("This release uses its bundled FVS engine.", duration = 4)
+      return()
+    }
     mode <- nz(input$eng_mode, "none")
     path <- if (identical(mode, "bundled")) {
       nz(rv$engine$path, ufvs_engine_dir())
@@ -1311,7 +1357,7 @@ ufvs_server <- function(input, output, session) {
     if (is.null(sc)) return()
     sc$cycles <- nz(sc$cycles, nz(input$run_cycles, 10))
     sc$cycle_length <- nz(sc$cycle_length, nz(input$run_cyclelen, 5))
-    sc$start_year <- nz(sc$start_year, default_start_year())
+    sc$start_year <- start_year()
     # Default on: the SVS files are small and the Visualize page needs them.
     sc$svs <- !identical(input$run_svs, FALSE)
     # Volume settings live on the project, not the scenario, so attach them to
@@ -1353,7 +1399,8 @@ ufvs_server <- function(input, output, session) {
     if (nrow(disp) > 1) {
       jobs <- try(launch_by_variant(run_data(), sc, stands, rv$engine,
                                     title = paste(nz(rv$project$name, "uFVS"), nm),
-                                    dataset_hash = dataset_hash()), silent = TRUE)
+                                    dataset_hash = dataset_hash(),
+                                    runs_dir = session_runs_dir), silent = TRUE)
       if (inherits(jobs, "try-error")) {
         showNotification(paste("Could not start the run:", conditionMessage(attr(jobs, "condition"))),
                          type = "error", duration = 12)
@@ -1372,7 +1419,8 @@ ufvs_server <- function(input, output, session) {
     if (isTRUE(input$run_batch) && length(stands) > 1) {
       jobs <- try(launch_batch(run_data(), sc, stands, rv$engine,
                                title = paste(nz(rv$project$name, "uFVS"), nm),
-                               dataset_hash = dataset_hash()), silent = TRUE)
+                               dataset_hash = dataset_hash(),
+                               runs_dir = session_runs_dir), silent = TRUE)
       if (inherits(jobs, "try-error")) {
         showNotification(paste("Could not start the batch:", conditionMessage(attr(jobs, "condition"))),
                          type = "error", duration = 12)
@@ -1386,7 +1434,8 @@ ufvs_server <- function(input, output, session) {
     } else {
       prep <- try(prepare_run(run_data(), sc, stands, rv$engine,
                               title = paste(nz(rv$project$name, "uFVS"), nm),
-                              dataset_hash = dataset_hash()), silent = TRUE)
+                              dataset_hash = dataset_hash(),
+                              runs_dir = session_runs_dir), silent = TRUE)
       if (inherits(prep, "try-error")) {
         showNotification(paste("Could not prepare the run:", conditionMessage(attr(prep, "condition"))),
                          type = "error", duration = 12); return()
@@ -1535,7 +1584,7 @@ ufvs_server <- function(input, output, session) {
   })
 
   output$run_history <- renderUI({
-    r <- list_runs()
+    r <- list_runs(session_runs_dir)
     if (!nrow(r)) return(div(class = "muted small", "No runs recorded yet."))
     d <- r[, c("run_id", "created", "scenario", "stands", "status")]
     names(d) <- c("Run", "Created", "Scenario", "Stands", "Status")
@@ -1631,8 +1680,9 @@ ufvs_server <- function(input, output, session) {
         ufvs_table(d, digits = list(TPA = 1, BA = 1, QMD = 1)),
         method_note("Trees per acre and basal area only. Volume comes from FVS.")))
     }
-    yrs <- sort(unique(res$TreeList$Year))
-    d <- product_summary_fvs(res$TreeList, rv$products, year = yrs[1])
+    yrs <- if ("Year" %in% names(res$TreeList)) safe_num(res$TreeList$Year) else numeric(0)
+    yrs <- sort(unique(yrs[is.finite(yrs)]))
+    d <- product_summary_fvs(res$TreeList, rv$products, year = if (length(yrs)) yrs[1] else NULL)
     ufvs_table(d, digits = list(TPA = 1, BA = 1, QMD = 1, TCuFt = 0, MCuFt = 0, SCuFt = 0,
                                 BdFt = 0, MBF = 2))
   })
@@ -1644,16 +1694,20 @@ ufvs_server <- function(input, output, session) {
       d <- product_summary_inventory(rv$expanded, rv$products, by = "SPECIES")
       return(ufvs_table(d, digits = list(TPA = 1, BA = 1, QMD = 1)))
     }
-    yrs <- sort(unique(res$TreeList$Year))
-    d <- product_summary_fvs(res$TreeList, rv$products, by = "SpeciesFVS", year = yrs[1])
+    yrs <- if ("Year" %in% names(res$TreeList)) safe_num(res$TreeList$Year) else numeric(0)
+    yrs <- sort(unique(yrs[is.finite(yrs)]))
+    d <- product_summary_fvs(res$TreeList, rv$products, by = "SpeciesFVS",
+                             year = if (length(yrs)) yrs[1] else NULL)
     ufvs_table(d, digits = list(TPA = 1, BA = 1, QMD = 1, MCuFt = 0, BdFt = 0, MBF = 2))
   })
 
   output$merch_reconcile <- renderUI({
     res <- current_results()
     if (is.null(res$TreeList) || is.null(res$StandSummary)) return(NULL)
-    yrs <- sort(unique(res$TreeList$Year))
-    d <- product_summary_fvs(res$TreeList, rv$products, year = yrs[1])
+    yrs <- if ("Year" %in% names(res$TreeList)) safe_num(res$TreeList$Year) else numeric(0)
+    yrs <- sort(unique(yrs[is.finite(yrs)]))
+    d <- product_summary_fvs(res$TreeList, rv$products,
+                             year = if (length(yrs)) yrs[1] else NULL)
     rec <- reconcile_products(d, res$StandSummary)
     if (!nrow(rec))
       return(msg_box("ok", "Class subtotals reconcile with FVS totals."))
@@ -1661,75 +1715,144 @@ ufvs_server <- function(input, output, session) {
       "Trust the FVS totals."), ufvs_table(rec))
   })
 
-  #' Years available across the selected scenarios.
-  ss_years <- reactive({
-    tabs <- results_tables(nz(input$ss_scenarios, scenarios_with_results()))
+  #' Scenarios, variants, and years shown on Stand & Stock.
+  ss_scenarios <- reactive({
+    have <- scenarios_with_results()
+    pick <- intersect(nz(input$ss_scenarios, have), have)
+    if (length(pick)) pick else have
+  })
+
+  ss_variant_filter <- reactive({
+    v <- as.character(nz(input$ss_variant, ""))[1]
+    if (is.na(v)) "" else toupper(trimws(v))
+  })
+
+  ss_variants <- reactive({
+    tabs <- results_tables(ss_scenarios())
     d <- tabs$StandSummary
+    if (is.null(d) || !nrow(d) || !"VARIANT" %in% names(d)) return(character(0))
+    sort(unique(toupper(as.character(d$VARIANT[!is.na(d$VARIANT) & nzchar(d$VARIANT)]))))
+  })
+
+  ss_tables <- reactive({
+    tabs <- results_tables(ss_scenarios())
+    v <- ss_variant_filter()
+    if (!nzchar(v)) return(tabs)
+    lapply(tabs, function(d) {
+      if (is.null(d) || !nrow(d) || !"VARIANT" %in% names(d)) return(d)
+      d[toupper(as.character(d$VARIANT)) == v, , drop = FALSE]
+    })
+  })
+
+  ss_years <- reactive({
+    d <- ss_tables()$StandSummary
     if (is.null(d) || !nrow(d)) return(numeric(0))
-    sort(unique(safe_num(d$Year)))
+    y <- safe_num(d$Year)
+    sort(unique(y[is.finite(y)]))
+  })
+
+  ss_selected_year <- reactive({
+    yrs <- ss_years()
+    if (!length(yrs)) return(NA_real_)
+    y <- as_scalar_num(input$ss_year)
+    if (is.na(y) || !y %in% yrs) yrs[1] else y
   })
 
   output$ss_controls <- renderUI({
     have <- scenarios_with_results()
+    if (!length(have)) return(div(class = "muted small", "Run a scenario to see projected stand and stock values."))
     yrs <- isolate(ss_years())
+    variants <- isolate(ss_variants())
+    selected_variant <- isolate(ss_variant_filter())
+    variant_choices <- c("All variants" = "", stats::setNames(variants, variants))
+    if (!selected_variant %in% unname(variant_choices)) selected_variant <- ""
     tagList(
-      div(class = "bar-row",
-        div(style = "min-width:260px;flex:1",
+      div(class = "results-controls",
+        div(class = "results-control-scenarios",
           scenario_picker("ss_scenarios", have,
                           isolate(intersect(nz(input$ss_scenarios, have), have)))),
+        if (length(variants))
+          div(class = "results-control-variant",
+            selectInput("ss_variant", "Variant", choices = variant_choices,
+                        selected = selected_variant)),
         if (length(yrs))
-          div(style = "width:130px",
+          div(class = "results-control-year",
             year_picker("ss_year", yrs, isolate(input$ss_year)))),
       div(class = "muted small",
-          sprintf("Statistics shown: %s at %s%%. Change them on the Statistics page.",
-                  paste(stat_column_names(rv$stats), collapse = " \u00b7 "),
-                  fmt_num(rv$stats$confidence_level, 1))))
+          "Projection values below come from FVS for the selected scenario(s), variant, and year. Cruise confidence intervals remain on the Statistics page."))
   })
 
-  #' Projected stand table for the chosen year, one row per scenario, so the
-  #' alternatives can be read against each other directly.
-  output$ss_projected <- renderUI({
-    picks <- nz(input$ss_scenarios, scenarios_with_results())
-    tabs <- results_tables(picks)
-    d <- tabs$StandSummary
-    if (is.null(d) || !nrow(d)) return(NULL)
-    yr <- suppressWarnings(as.numeric(nz(input$ss_year, NA)))
-    if (is.na(yr)) yr <- min(safe_num(d$Year), na.rm = TRUE)
+  #' Projected stand table for the chosen year, one row per scenario and stand.
+  output$ss_table <- renderUI({
+    d <- ss_tables()$StandSummary
+    yr <- ss_selected_year()
+    if (is.null(d) || !nrow(d) || is.na(yr))
+      return(empty_state("No projected stand table", "Run a scenario first."))
     d <- d[safe_num(d$Year) == yr, , drop = FALSE]
-    if (!nrow(d)) return(NULL)
+    if (!nrow(d)) return(div(class = "muted small", "No projection rows exist for that year."))
 
-    keep <- intersect(c("SCENARIO", "StandID", "Age", "Tpa", "BA", "QMD", "TopHt",
-                        "SDI", "TCuFt", "MCuFt", "BdFt", "RTpa", "RMCuFt", "MAI"),
+    keep <- intersect(c("SCENARIO", "VARIANT", "StandID", "Age", "Tpa", "BA", "QMD", "TopHt",
+                        "SDI", "TCuFt", "MCuFt", "SCuFt", "BdFt", "RTpa", "RMCuFt", "MAI"),
                       names(d))
     out <- d[, keep, drop = FALSE]
     names(out)[names(out) == "SCENARIO"] <- "Scenario"
+    names(out)[names(out) == "VARIANT"] <- "Variant"
     names(out)[names(out) == "StandID"] <- "Stand"
     card(sprintf("Projected stand, year %s", fmt_num(yr, 0)),
       ufvs_table(out, digits = list(Tpa = 1, BA = 1, QMD = 1, TopHt = 0, SDI = 0,
-                                    TCuFt = 0, MCuFt = 0, BdFt = 0, RTpa = 1,
-                                    RMCuFt = 0, MAI = 1)),
+                                    TCuFt = 0, MCuFt = 0, SCuFt = 0, BdFt = 0,
+                                    RTpa = 1, RMCuFt = 0, MAI = 1)),
       method_note("FVS output for the selected year. Volumes are FVS's own."))
   })
 
   output$ss_body <- renderUI({
     tagList(
-      uiOutput("ss_projected"),
-      card("Inventory statistics", sub = "the cruise, not a projection",
-           uiOutput("ss_table")),
-      card("By species", uiOutput("ss_species")))
+      uiOutput("ss_table"),
+      card("Projected by species", uiOutput("ss_species")))
   })
 
-  output$ss_table <- renderUI(stat_block(c("TPA", "BA", "QMD")))
-
   output$ss_species <- renderUI({
-    if (is.null(rv$expanded)) return(div(class = "muted small", "Load an inventory."))
-    pt <- plot_table(rv$expanded, rv$data)
-    tr <- rv$expanded$trees[rv$expanded$trees$IS_LIVE %in% TRUE, , drop = FALSE]
-    g <- plot_group_values(tr, pt, "BA_PLOT", "SPECIES")
-    n_obs <- vapply(names(g), function(s) sum(tr$SPECIES == s), numeric(1))
-    tbl <- stat_table(g, rv$stats, n_obs = n_obs, label_col = "Species")
-    tagList(ufvs_table(tbl),
-      method_note("Plots without a species contribute zero, not a missing value."))
+    d <- ss_tables()$TreeList
+    yr <- ss_selected_year()
+    if (is.null(d) || !nrow(d) || is.na(yr))
+      return(div(class = "muted small", "Run a scenario to see projected species values."))
+    d <- d[safe_num(d$Year) == yr, , drop = FALSE]
+    if (!nrow(d)) return(div(class = "muted small", "No projected tree rows exist for that year."))
+
+    species_col <- if ("SpeciesFVS" %in% names(d)) "SpeciesFVS" else
+      if ("SPECIES" %in% names(d)) "SPECIES" else NULL
+    if (is.null(species_col) || !"TPA" %in% names(d) || !"DBH" %in% names(d))
+      return(div(class = "muted small", "The selected projection did not produce species-level tree values."))
+
+    d$Species <- as.character(d[[species_col]])
+    d$TPA <- safe_num(d$TPA)
+    d$BA_AC <- ba_of_dbh(safe_num(d$DBH)) * d$TPA
+    for (v in intersect(c("TCuFt", "MCuFt", "SCuFt", "BdFt"), names(d)))
+      d[[v]] <- safe_num(d[[v]]) * d$TPA
+    group_cols <- intersect(c("SCENARIO", "VARIANT", "StandID", "Species"), names(d))
+    key <- do.call(paste, c(lapply(group_cols, function(k) as.character(d[[k]])), sep = "\r"))
+    out <- do.call(rbind, lapply(split(seq_len(nrow(d)), key), function(ix) {
+      x <- d[ix, , drop = FALSE]
+      tpa <- sum(x$TPA, na.rm = TRUE)
+      ba <- sum(x$BA_AC, na.rm = TRUE)
+      row <- data.frame(
+        Scenario = as.character(x$SCENARIO[1]),
+        Variant = as.character(x$VARIANT[1]),
+        Stand = as.character(x$StandID[1]),
+        Species = as.character(x$Species[1]),
+        `Tree records` = nrow(x),
+        TPA = tpa,
+        BA = ba,
+        QMD = if (tpa > 0 && ba > 0) sqrt(ba / tpa / FT2_PER_IN2) else NA_real_,
+        check.names = FALSE, stringsAsFactors = FALSE)
+      for (v in intersect(c("TCuFt", "MCuFt", "SCuFt", "BdFt"), names(x)))
+        row[[v]] <- sum(x[[v]], na.rm = TRUE)
+      row
+    }))
+    rownames(out) <- NULL
+    out <- out[order(out$Scenario, out$Variant, out$Stand, out$Species), , drop = FALSE]
+    ufvs_table(out, digits = list(TPA = 1, BA = 1, QMD = 1,
+                                  TCuFt = 0, MCuFt = 0, SCuFt = 0, BdFt = 0))
   })
 
   # ---- charts ----------------------------------------------------------------
@@ -1748,7 +1871,7 @@ ufvs_server <- function(input, output, session) {
     rv$results          # re-read once a new run lands
     dh <- dataset_hash()
     if (is.na(dh)) return(list())
-    runs <- list_runs()
+    runs <- list_runs(session_runs_dir)
     runs <- runs[runs$status == "success", , drop = FALSE]
     # Results from a different inventory would be misleading, and runs written
     # before uFVS recorded the dataset cannot be matched at all.
@@ -1781,6 +1904,27 @@ ufvs_server <- function(input, output, session) {
     c(intersect(names(rv$scenarios), have), setdiff(have, names(rv$scenarios)))
   })
 
+  # FVS output identifies stands, while the inventory identifies their FVS
+  # variants. Carry that relationship into every result table so the results
+  # pages can filter a mixed-variant inventory without guessing from a value.
+  result_variant_lookup <- reactive({
+    if (is.null(rv$data) || is.null(rv$data$stands) || !nrow(rv$data$stands) ||
+        !all(c("STAND_ID", "VARIANT") %in% names(rv$data$stands)))
+      return(character(0))
+    stats::setNames(toupper(as.character(rv$data$stands$VARIANT)),
+                    as.character(rv$data$stands$STAND_ID))
+  })
+
+  add_result_variant <- function(d) {
+    if (is.null(d) || !nrow(d)) return(d)
+    if (!"VARIANT" %in% names(d) && "StandID" %in% names(d)) {
+      lookup <- result_variant_lookup()
+      d$VARIANT <- unname(lookup[as.character(d$StandID)])
+    }
+    if ("VARIANT" %in% names(d)) d$VARIANT <- toupper(as.character(d$VARIANT))
+    d
+  }
+
   #' Which scenarios the charts should draw. Defaults to every scenario that has
   #' been run, so comparing them is the normal case rather than a separate page.
   chart_scenarios <- reactive({
@@ -1806,7 +1950,7 @@ ufvs_server <- function(input, output, session) {
         d <- results_for(nm)[[tbl]]
         if (is.null(d) || !nrow(d)) return(NULL)
         if (!"SCENARIO" %in% names(d)) d$SCENARIO <- nm
-        d
+        add_result_variant(d)
       })
       parts <- parts[!vapply(parts, is.null, logical(1))]
       if (!length(parts)) next
@@ -1868,7 +2012,8 @@ ufvs_server <- function(input, output, session) {
                   selected = keep(cur$group, grp, default_group)),
       selectInput("ch_facet", "Facet wrap", choices = fac,
                   selected = keep(cur$facet, fac, "None")),
-      tags$details(tags$summary(class = "muted small", "More"),
+      tags$details(
+        tags$summary(class = "muted small", "More"),
         div(style = "padding-top:8px",
           selectInput("ch_facet_col", "Second facet (grid)", choices = fac,
                       selected = keep(cur$facet_col, fac, "None")),
@@ -1878,7 +2023,11 @@ ufvs_server <- function(input, output, session) {
                       selected = nz(cur$summary, "mean")),
           selectInput("ch_scales", "Facet scales",
                       c("Same" = "fixed", "Free y" = "free_y", "Free" = "free"),
-                      selected = nz(cur$scales, "fixed")))))
+                      selected = nz(cur$scales, "fixed")))
+      ),
+      div(class = "muted small chart-help",
+          "Use Color = Scenario to draw selected scenarios together, or Facet wrap = Scenario to separate them. Species is available when the chart uses a tree-level variable.")
+    )
   })
 
   chart_spec <- reactive({
@@ -1929,8 +2078,12 @@ ufvs_server <- function(input, output, session) {
       text(0.5, 0.5, nz(b$message, "Nothing to plot."), col = "#6e777d")
       return(invisible(NULL))
     }
-    b$plot + ggplot2::scale_color_manual(values = rep(UFVS_PALETTE, 9)) +
-      ggplot2::scale_fill_manual(values = rep(UFVS_PALETTE, 9))
+    p <- b$plot
+    if (!is_none(chart_spec()$group))
+      p <- p + ggplot2::scale_color_manual(values = rep(UFVS_PALETTE, 9))
+    if (!is_none(chart_spec()$group) && chart_spec()$type %in% c("bar", "area"))
+      p <- p + ggplot2::scale_fill_manual(values = rep(UFVS_PALETTE, 9))
+    p
   })
 
   output$ch_data <- renderUI({
@@ -1946,7 +2099,10 @@ ufvs_server <- function(input, output, session) {
   # the result read it, so the table appears immediately instead of waiting for
   # the browser to echo the default selections back to the server.
   table_plan <- reactive({
-    tabs <- results_tables(nz(input$tb_scenarios, scenarios_with_results()))
+    have <- scenarios_with_results()
+    picks <- intersect(nz(input$tb_scenarios, have), have)
+    if (!length(picks)) picks <- have
+    tabs <- results_tables(picks)
     if (!length(tabs)) return(NULL)
     src <- if (!is.null(input$tb_source) && input$tb_source %in% names(tabs))
       input$tb_source else names(tabs)[1]
@@ -1978,8 +2134,11 @@ ufvs_server <- function(input, output, session) {
     if (!length(values))
       values <- intersect(c("Tpa", "BA", "MCuFt", "BdFt", "TPA", "TCuFt"), totalable)
 
+    layout <- nz(input$tb_layout, if (length(picks) > 1) "separate" else "combined")
+    if (!layout %in% c("separate", "combined")) layout <- "separate"
     list(tabs = tabs, source = src, data = d, groupable = groupable,
-         totalable = totalable, group = group, values = values)
+         totalable = totalable, group = group, values = values,
+         picks = picks, layout = layout)
   })
 
   output$tb_controls <- renderUI({
@@ -1992,12 +2151,35 @@ ufvs_server <- function(input, output, session) {
     tagList(
       scenario_picker("tb_scenarios", have,
                       isolate(intersect(nz(input$tb_scenarios, have), have))),
+      selectInput("tb_layout", "Layout",
+                  c("One table per scenario" = "separate",
+                    "Combine selected scenarios" = "combined"),
+                  selected = isolate(nz(input$tb_layout,
+                                        if (length(have) > 1) "separate" else "combined"))),
       selectInput("tb_source", "Source", choices = names(p$tabs), selected = p$source),
       selectInput("tb_group", "Group by", choices = p$groupable, multiple = TRUE,
                   selected = p$group),
       selectInput("tb_values", "Total", choices = p$totalable, multiple = TRUE,
-                  selected = p$values))
+                  selected = p$values),
+      div(class = "muted small table-help",
+          "Select several scenarios, then choose separate tables to keep each projection readable on this page."))
   })
+
+  build_output_table <- function(d, group, values) {
+    if (is.null(d) || !nrow(d)) return(NULL)
+    group <- intersect(group, names(d))
+    values <- intersect(values, names(d))
+    if (!length(group) || !length(values)) return(NULL)
+    key <- do.call(paste, c(lapply(group, function(k) d[[k]]), sep = "\r"))
+    out <- do.call(rbind, lapply(split(d, key), function(x) {
+      row <- x[1, group, drop = FALSE]
+      for (k in values) row[[k]] <- sum(safe_num(x[[k]]), na.rm = TRUE)
+      row
+    }))
+    rownames(out) <- NULL
+    ord <- do.call(order, lapply(group, function(k) out[[k]]))
+    out[ord, , drop = FALSE]
+  }
 
   output$tb_result <- renderUI({
     p <- table_plan()
@@ -2006,17 +2188,27 @@ ufvs_server <- function(input, output, session) {
     if (!length(p$group) || !length(p$values))
       return(div(class = "muted small", "Choose a grouping column and a column to total."))
 
-    d <- p$data
-    key <- do.call(paste, c(lapply(p$group, function(k) d[[k]]), sep = "\r"))
-    out <- do.call(rbind, lapply(split(d, key), function(x) {
-      row <- x[1, p$group, drop = FALSE]
-      for (k in p$values) row[[k]] <- sum(safe_num(x[[k]]), na.rm = TRUE)
-      row
-    }))
-    rownames(out) <- NULL
-    # Keep the natural reading order of the grouping columns.
-    ord <- do.call(order, lapply(p$group, function(k) out[[k]]))
-    ufvs_table(out[ord, , drop = FALSE])
+    if (identical(p$layout, "separate") && length(p$picks) > 1) {
+      panels <- lapply(p$picks, function(nm) {
+        r <- results_for(nm)
+        d <- if (is.list(r)) r[[p$source]] else NULL
+        d <- add_result_variant(d)
+        if (!is.null(d) && nrow(d) && !"SCENARIO" %in% names(d)) d$SCENARIO <- nm
+        # The scenario label is already in the card title; keep it out of the
+        # grouping columns so each panel is not filled with repeated text.
+        group <- setdiff(p$group, "SCENARIO")
+        out <- build_output_table(d, group, p$values)
+        if (is.null(out)) return(NULL)
+        card(nm, ufvs_table(out))
+      })
+      panels <- panels[!vapply(panels, is.null, logical(1))]
+      if (!length(panels)) return(div(class = "muted small", "The selected scenarios have no rows for this table."))
+      return(div(class = "table-result-grid", panels))
+    }
+
+    out <- build_output_table(p$data, p$group, p$values)
+    if (is.null(out)) return(div(class = "muted small", "The selected table has no usable rows."))
+    ufvs_table(out)
   })
 
   # ---- compare ---------------------------------------------------------------
@@ -2048,7 +2240,7 @@ ufvs_server <- function(input, output, session) {
   #' them. run.json records the scenario, so each panel can find its own files.
   svs_dirs_by_scenario <- reactive({
     rv$results   # recompute once new results land
-    runs <- list_runs()
+    runs <- list_runs(session_runs_dir)
     out <- list()
     for (i in seq_len(nrow(runs))) {
       d <- runs$dir[i]
@@ -2318,10 +2510,11 @@ ufvs_server <- function(input, output, session) {
 
   # ---- save/load -------------------------------------------------------------
   project_state <- function() {
-    dataset <- if (is.null(rv$data)) NULL else list(
-      path = rv$data$source$path,
-      name = rv$data$source$name,
-      type = rv$data$source$type)
+    dataset <- if (is.null(rv$data)) NULL else {
+      src <- rv$data$source
+      list(path = src$path, paths = nz(src$paths, src$path),
+           names = nz(src$names, src$name), name = src$name, type = src$type)
+    }
     list(version = UFVS_VERSION,
          saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
          project = rv$project, stats = rv$stats,
@@ -2338,18 +2531,102 @@ ufvs_server <- function(input, output, session) {
     invisible(path)
   }
 
-  project_dataset_path <- function(state, project_path) {
+  project_dataset_paths <- function(state, project_path) {
     d <- state$dataset
-    if (is.list(d)) d <- d$path
-    if (is.null(d) || !length(d) || is.na(d) || !nzchar(as.character(d))) return(NA_character_)
-    d <- as.character(d)[1]
-    absolute <- grepl("^(/|[A-Za-z]:[\\\\/]|\\\\\\\\)", d)
-    candidates <- if (absolute) d else c(
-      file.path(dirname(project_path), d),
-      file.path(ufvs_root(), d),
-      d)
-    hit <- candidates[file.exists(candidates) | dir.exists(candidates)]
-    if (length(hit)) normalizePath(hit[1], mustWork = FALSE) else NA_character_
+    raw <- if (is.list(d)) as_chr_vec(d$paths) else as_chr_vec(d)
+    if (!length(raw) && is.list(d)) raw <- as_chr_vec(d$path)
+    if (!length(raw)) return(NA_character_)
+
+    resolve_one <- function(x) {
+      absolute <- grepl("^(/|[A-Za-z]:[\\\\/]|\\\\\\\\)", x)
+      candidates <- if (absolute) x else c(
+        file.path(dirname(project_path), x),
+        file.path(ufvs_root(), x),
+        x)
+      hit <- candidates[file.exists(candidates) | dir.exists(candidates)]
+      if (length(hit)) normalizePath(hit[1], mustWork = FALSE) else NA_character_
+    }
+    out <- vapply(raw, resolve_one, character(1))
+    if (anyNA(out)) NA_character_ else out
+  }
+
+  saved_bool <- function(x, default = FALSE) {
+    if (is.null(x) || !length(x)) return(default)
+    v <- unlist(x, use.names = FALSE)[1]
+    if (is.logical(v) && !is.na(v)) return(isTRUE(v))
+    if (is.numeric(v) && !is.na(v)) return(v != 0)
+    txt <- tolower(trimws(as.character(v)))
+    if (txt %in% c("true", "t", "yes", "y", "1")) TRUE
+    else if (txt %in% c("false", "f", "no", "n", "0")) FALSE
+    else default
+  }
+
+  saved_text <- function(x, default = "") {
+    if (is.null(x) || !length(x)) return(default)
+    v <- unlist(x, use.names = FALSE)[1]
+    if (is.na(v)) default else as.character(v)
+  }
+
+  normalize_saved_products <- function(saved) {
+    if (!is.list(saved) || !length(saved)) return(default_products())
+    out <- lapply(seq_along(saved), function(i) {
+      p <- saved[[i]]
+      if (!is.list(p)) p <- list()
+      mn <- as_scalar_num(p$min_dbh); if (is.na(mn)) mn <- 0
+      mx <- as_scalar_num(p$max_dbh); if (is.na(mx)) mx <- 999
+      list(id = saved_text(p$id, paste0("class", i)),
+           name = saved_text(p$name, paste("Class", i)),
+           species = if (length(as_chr_vec(p$species))) as_chr_vec(p$species) else "*",
+           min_dbh = mn, max_dbh = mx)
+    })
+    out
+  }
+
+  normalize_saved_volume <- function(saved) {
+    out <- default_volume_settings()
+    if (!is.list(saved)) return(out)
+    out$use_defaults <- saved_bool(saved$use_defaults, out$use_defaults)
+    if (is.list(saved$keywords) && length(saved$keywords)) {
+      out$keywords <- lapply(saved$keywords, function(k) {
+        if (!is.list(k)) k <- list()
+        vals <- k$values
+        if (is.null(vals)) vals <- list()
+        if (!is.list(vals)) vals <- as.list(vals)
+        list(keyword = saved_text(k$keyword, ""), values = vals)
+      })
+      out$keywords <- Filter(function(k) nzchar(k$keyword), out$keywords)
+    }
+    out
+  }
+
+  normalize_saved_scenario <- function(saved, fallback_name) {
+    if (!is.list(saved)) saved <- list()
+    nm <- saved_text(saved$name, fallback_name)
+    cycles <- as_scalar_num(saved$cycles); if (is.na(cycles) || cycles < 1) cycles <- 10
+    cycle_length <- as_scalar_num(saved$cycle_length)
+    if (is.na(cycle_length) || cycle_length < 1) cycle_length <- 5
+    start <- as_scalar_num(saved$start_year)
+
+    events <- if (is.list(saved$events)) lapply(saved$events, function(e) {
+      if (!is.list(e)) e <- list()
+      vals <- e$values
+      if (is.null(vals)) vals <- list()
+      if (!is.list(vals)) vals <- as.list(vals)
+      list(uid = saved_text(e$uid, paste0("e", as.integer(stats::runif(1, 1e6, 9e6)))),
+           keyword = saved_text(e$keyword, "ThinBBA"),
+           year = as_scalar_num(e$year), values = vals)
+    }) else list()
+
+    computes <- if (is.list(saved$computes)) lapply(saved$computes, function(c) {
+      if (!is.list(c)) c <- list()
+      list(name = saved_text(c$name, ""), expr = saved_text(c$expr, ""),
+           when = saved_text(c$when, "0"))
+    }) else list()
+
+    list(name = nm, cycles = as.integer(cycles), cycle_length = as.integer(cycle_length),
+         start_year = if (is.na(start)) NA_integer_ else as.integer(start),
+         events = events, raw_keywords = saved_text(saved$raw_keywords, ""),
+         computes = computes, svs = saved_bool(saved$svs, FALSE))
   }
 
   restore_project <- function(path) {
@@ -2370,26 +2647,26 @@ ufvs_server <- function(input, output, session) {
     # entirely, and the statistics pages then failed on a zero-length if().
     # Rebuild the settings explicitly instead.
     if (is.list(state$stats)) rv$stats <- restore_stat_settings(state$stats)
-    if (is.list(state$products)) rv$products <- state$products
-    if (is.list(state$volume)) {
-      rv$volume <- utils::modifyList(default_volume_settings(), state$volume)
-    }
+    if (is.list(state$products)) rv$products <- normalize_saved_products(state$products)
+    if (is.list(state$volume)) rv$volume <- normalize_saved_volume(state$volume)
     if (is.list(state$scenarios) && length(state$scenarios)) {
-      # JSON represents multi-value fields as lists. Keep those lists because
-      # keyword rendering and the management editor use named field values.
-      rv$scenarios <- state$scenarios
-      if (is.null(names(rv$scenarios))) {
-        names(rv$scenarios) <- paste0("Scenario ", seq_along(rv$scenarios))
-      }
+      # JSON represents multi-value fields as lists. Normalize scalar "NA"
+      # strings back to real missing values before any reactive control sees them.
+      sn <- names(state$scenarios)
+      if (is.null(sn)) sn <- paste0("Scenario ", seq_along(state$scenarios))
+      rv$scenarios <- lapply(seq_along(state$scenarios), function(i)
+        normalize_saved_scenario(state$scenarios[[i]], sn[i]))
+      names(rv$scenarios) <- sn
     }
     if (!is.null(state$current) && as.character(state$current) %in% names(rv$scenarios))
       rv$current <- as.character(state$current)[1]
 
     rv$project_file <- path
 
-    data_path <- project_dataset_path(state, path)
-    if (!is.na(data_path)) {
-      load_dataset(data_path)
+    data_paths <- project_dataset_paths(state, path)
+    data_names <- if (is.list(state$dataset)) as_chr_vec(state$dataset$names) else NULL
+    if (length(data_paths) && !all(is.na(data_paths))) {
+      load_dataset(data_paths, names = data_names)
       showNotification("Project settings and its inventory were loaded.",
                        type = "message", duration = 6)
     } else {
@@ -2408,7 +2685,8 @@ ufvs_server <- function(input, output, session) {
     content = function(file) save_project_file(file))
 
   open_local_project <- function() {
-    p <- ufvs_project_path()
+    ps <- list_projects(ufvs_projects_dir())
+    p <- if (nrow(ps)) ps$path[1] else ufvs_project_path()
     if (!file.exists(p)) {
       showNotification("No saved project was found on this computer.",
                        type = "warning", duration = 6)
@@ -2418,7 +2696,7 @@ ufvs_server <- function(input, output, session) {
   }
 
   save_project_now <- function() {
-    p <- ufvs_project_path()
+    p <- project_path_for(rv$project$name)
     ok <- try(save_project_file(p), silent = TRUE)
     showNotification(if (inherits(ok, "try-error")) "Could not save the project."
                      else paste("Project saved locally at", p),
@@ -2435,7 +2713,7 @@ ufvs_server <- function(input, output, session) {
   autosave_state <- reactive({
     list(project = rv$project, stats = rv$stats, products = rv$products,
          volume = rv$volume, scenarios = rv$scenarios, current = rv$current,
-         dataset = if (is.null(rv$data)) NULL else rv$data$source$path)
+         dataset = if (is.null(rv$data)) NULL else rv$data$source$paths)
   })
 
   observe({
@@ -2443,7 +2721,7 @@ ufvs_server <- function(input, output, session) {
     # Nothing to save until an inventory or a real project name exists.
     if (is.null(rv$data) && identical(nz(rv$project$name, ""), "Untitled project")) return()
     isolate({
-      path <- project_file_for(rv$project$name)
+      path <- project_path_for(rv$project$name)
       ok <- try(save_project_file(path), silent = TRUE)
       if (!inherits(ok, "try-error")) rv$autosaved_at <- format(Sys.time(), "%H:%M:%S")
     })

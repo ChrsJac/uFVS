@@ -266,15 +266,21 @@ build_chart <- function(spec, data_tables, validation) {
   }
 
   p <- ggplot2::ggplot(d, do.call(ggplot2::aes, aes_args))
+  line_group <- if (!is_none(spec$group)) as.character(d[[spec$group]]) else rep("all", nrow(d))
+  line_group[is.na(line_group)] <- "(missing)"
+  line_ready <- any(vapply(split(d[[spec$x]], line_group), function(x) {
+    length(unique(x[!is.na(x)])) > 1L
+  }, logical(1)))
   p <- switch(nz(spec$type, "line"),
-    line = p + ggplot2::geom_line(linewidth = 0.8),
+    line = if (line_ready) p + ggplot2::geom_line(linewidth = 0.8) else
+      p + ggplot2::geom_point(size = 2),
     bar  = p + ggplot2::geom_col(position = "dodge",
                                  ggplot2::aes(fill = if (!is_none(spec$group)) .data[[spec$group]] else NULL)),
     point = p + ggplot2::geom_point(size = 2),
     area = p + ggplot2::geom_area(position = "stack",
                                   ggplot2::aes(fill = if (!is_none(spec$group)) .data[[spec$group]] else NULL)),
     p + ggplot2::geom_line(linewidth = 0.8))
-  if (isTRUE(spec$points) && identical(nz(spec$type, "line"), "line")) {
+  if (isTRUE(spec$points) && identical(nz(spec$type, "line"), "line") && line_ready) {
     p <- p + ggplot2::geom_point(size = 1.6)
   }
 
@@ -296,11 +302,11 @@ build_chart <- function(spec, data_tables, validation) {
   lab <- function(m, v) if (is.null(m)) v else
     paste0(m$label, if (nzchar(nz(m$units, ""))) paste0(" (", m$units, ")") else "")
 
-  p <- p +
-    ggplot2::labs(x = lab(xm, spec$x), y = lab(ym, spec$y),
-                  color = if (!is_none(spec$group)) nz(var_meta(spec$group)$label, spec$group) else NULL,
-                  fill = if (!is_none(spec$group)) nz(var_meta(spec$group)$label, spec$group) else NULL) +
-    ufvs_axis_theme()
+  group_label <- if (!is_none(spec$group)) nz(var_meta(spec$group)$label, spec$group) else NULL
+  labels <- list(x = lab(xm, spec$x), y = lab(ym, spec$y), color = group_label)
+  if (!is_none(spec$group) && nz(spec$type, "line") %in% c("bar", "area"))
+    labels$fill <- group_label
+  p <- p + do.call(ggplot2::labs, labels) + ufvs_axis_theme()
 
   list(plot = p, data = d, message = validation$message)
 }

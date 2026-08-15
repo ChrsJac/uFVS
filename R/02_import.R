@@ -40,13 +40,26 @@ detect_source_type <- function(path) {
 #' @param path one file, a directory, or several files for the CSV route
 #' @param names display names matching `path`, when uploads are renamed
 import_fvs_data <- function(path, tree_csv = NULL, names = NULL) {
+  path <- as.character(path)
+  if (!length(path)) {
+    stop("No input file was selected.", call. = FALSE)
+  }
+
+  # Keep the old two-file calling convention usable, but route it through the
+  # same named CSV-set path as the multi-file upload. This is also important for
+  # project reloads: the complete set of source files must remain identifiable.
+  if (!is.null(tree_csv)) path <- c(path, as.character(tree_csv))
+  labels <- if (is.null(names)) basename(path) else as.character(names)
+  if (length(labels) != length(path)) labels <- basename(path)
+
   # Several files can only mean the CSV route.
   if (length(path) > 1) {
-    out <- import_csv_set(path, names)
+    out <- import_csv_set(path, labels)
     out$stands <- upcase_names(out$stands); out$plots <- upcase_names(out$plots)
     out$trees <- upcase_names(out$trees)
-    return(finalize_import(out, list(path = path[1], type = "csv",
-                                     name = paste(nz(names, basename(path)), collapse = " + "),
+    return(finalize_import(out, list(path = path[1], paths = path, names = labels,
+                                     type = "csv",
+                                     name = paste(labels, collapse = " + "),
                                      imported_at = Sys.time())))
   }
   type <- detect_source_type(path)
@@ -60,7 +73,8 @@ import_fvs_data <- function(path, tree_csv = NULL, names = NULL) {
          "FVS_TreeInit sheets, or CSVs using those table names.")
   )
 
-  finalize_import(out, list(path = path, type = type, name = basename(path),
+  finalize_import(out, list(path = path, paths = path, names = basename(path),
+                            type = type, name = basename(path),
                             imported_at = Sys.time()))
 }
 
@@ -144,7 +158,9 @@ import_sqlite <- function(path) {
 #' @param paths file paths on disk
 #' @param names optional display names, when the upload path is randomized
 import_csv_set <- function(paths, names = NULL) {
-  labels <- if (is.null(names)) basename(paths) else names
+  paths <- as.character(paths)
+  labels <- if (is.null(names)) basename(paths) else as.character(names)
+  if (length(labels) != length(paths)) labels <- basename(paths)
   find_one <- function(want) {
     hit <- which(grepl(want, labels, ignore.case = TRUE))
     if (!length(hit)) return(NULL)

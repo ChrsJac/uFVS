@@ -17,7 +17,7 @@
                     └──────────────┬──────────────┘
                                    │  isolated OS process
                     ┌──────────────▼──────────────┐
-                    │  official FVS engine        │   ← not shipped by uFVS
+                    │  platform FVS engine       │   ← bundled in releases
                     │  executable or shared lib   │
                     └──────────────┬──────────────┘
                                    │  FVSOut.db + logs
@@ -53,6 +53,16 @@ ones; the reverse is never true.
 | `21_pages` | Page layouts |
 | `22_info` | Attribution page |
 | `30_server` | Reactive wiring |
+
+## Desktop release boundary
+
+The application source is the same on both desktop platforms. A release adds a
+platform-native R runtime, the strong dependency closure of the tested package
+set, and native FVS executables under `runtime/`, `library/`, and `engine/`.
+Launchers resolve those directories relative to the extracted release root and
+never search for system R or install packages. Mutable projects, datasets, and
+run folders remain in the user's application-data directory so an extracted
+release can run from a read-only folder.
 
 ## Two rules the code is organized around
 

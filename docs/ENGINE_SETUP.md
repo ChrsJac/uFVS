@@ -1,7 +1,8 @@
 # Connecting an FVS engine
 
-uFVS ships no FVS engine and never will. FVS is the USDA Forest Service's
-software; you install or build an official copy and point uFVS at it.
+The downloadable desktop releases include a platform-specific official FVS
+executable beside the application. A source checkout may instead use an
+external executable or shared-library build.
 
 Without an engine, uFVS still does everything on the inventory side — import,
 validation, sampling design, statistics, product classes by diameter and
@@ -9,6 +10,10 @@ species, keyword generation. What it will not do is produce a projection or a
 volume, because those are FVS calculations and uFVS does not estimate them.
 
 ## Option 1 — an official release build
+
+For a downloaded uFVS release, no engine setup is needed. The release launcher
+uses the native engine in its `engine` folder and ignores saved developer engine
+settings. The remaining options apply to a source checkout.
 
 Check the FVS website and repository for prebuilt binaries for your platform:
 

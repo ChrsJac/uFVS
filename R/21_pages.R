@@ -221,7 +221,7 @@ page_runsettings <- function() {
 page_standstock <- function() {
   tagList(
     page_head("Stand & Stock",
-              "Inventory statistics, and projected stand tables once a scenario has been run."),
+              "Projected stand and species values by scenario, variant, and year."),
     card("Show", uiOutput("ss_controls")),
     uiOutput("ss_body")
   )
@@ -241,7 +241,7 @@ page_merch <- function() {
 
 page_tables <- function() {
   tagList(
-    page_head("Tables"),
+    page_head("Tables", "Build one table or separate tables for the scenarios you select."),
     div(class = "grid-side",
       card("Build", uiOutput("tb_controls")),
       card("Result", uiOutput("tb_result")))

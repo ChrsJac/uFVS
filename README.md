@@ -65,27 +65,48 @@ the inventory statistics a cruiser actually asks for.
 ## What it does not do
 
 uFVS computes no growth, mortality, regeneration, volume, taper, biomass, fire
-behavior, or carbon. Those come from FVS. Without a configured FVS engine, the
-inventory side works fully and there are no volumes — uFVS will not estimate one.
+behavior, or carbon. Those come from FVS. Without an FVS engine, the inventory
+side still works fully and there are no volumes — uFVS will not estimate one.
+The downloadable desktop releases include a platform-specific FVS engine.
 
 ## Requirements
 
+Downloaded Windows and Apple Silicon macOS releases are self-contained. They
+include the tested R runtime, R packages, and native FVS engine; users do not
+need R, RStudio, Internet access, or a separate FVS installation.
+
+The requirements below apply only to a source checkout.
+
 - R 4.1 or newer
-- Packages: `shiny`, `ggplot2`, `jsonlite`, `DBI`, `RSQLite`, `readxl`, `callr`
+- Packages: `shiny`, `ggplot2`, `jsonlite`, `DBI`, `RSQLite`, `readxl`, `callr`, `digest`
 - Optional: `rgl` for the 3D stand view. Without it the Visualize page still
   draws its 2D profile and plan views.
 
 ```r
-install.packages(c("shiny","ggplot2","jsonlite","DBI","RSQLite","readxl","callr"))
+install.packages(c("shiny","ggplot2","jsonlite","DBI","RSQLite","readxl","callr","digest"))
 install.packages("rgl")   # optional, for the 3D stand view
 ```
 
-An FVS engine is optional for inventory work and required for projection. See
+An FVS engine is optional for inventory work and required for projection in a
+source checkout. See
 [docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md).
 
 ## Running it
 
-### Windows
+### Downloadable releases
+
+Download the matching ZIP from GitHub Releases:
+
+- `uFVS-<version>-Windows-x64.zip` for 64-bit Windows.
+- `uFVS-<version>-macOS-arm64.zip` for Apple Silicon Macs.
+
+Extract the ZIP and double-click **Start uFVS.bat** on Windows or **uFVS.app**
+on macOS. The release launcher uses only the files in the extracted folder,
+starts Shiny on `127.0.0.1` using an available local port, and opens the browser.
+It does not install packages or download anything. The macOS beta is unsigned;
+if macOS warns about the app, use Finder's **Open** command once.
+
+### Development checkout — Windows
 
 Unzip the folder, install R from [CRAN](https://cran.r-project.org/bin/windows/base/),
 and double-click **Launch uFVS.bat**. The launcher finds `Rscript.exe`, offers to
@@ -93,9 +114,12 @@ install the required packages into the user's R library, and opens uFVS in the
 browser. It does not require administrator privileges for the app itself.
 
 The copy in this repository contains a macOS FVS engine, so it is intentionally
-ignored on Windows. Inventory analysis works immediately; projection requires
-an official Windows FVS executable such as `FVSsn.exe`. See
+ignored on Windows. Inventory analysis works immediately; projection in a
+source checkout requires an official Windows FVS executable such as
+`FVSsn.exe`. See
 [docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md).
+
+### Development checkout — macOS
 
 **Double-click `uFVS.app`** (in the folder above this one). It finds R, checks
 the packages — offering to install any that are missing — starts the server on a
@@ -127,8 +151,9 @@ macOS may block a downloaded or unsigned app the first time. Right-click
 `uFVS.app` → **Open** → **Open**, and it will be trusted from then on. If it
 still does nothing, run `Launch uFVS.command` to see the actual error.
 
-`uFVS.app` expects to sit next to the `uFVS` project folder. If you move one,
-move both.
+The development `uFVS.app` expects to sit next to the `uFVS` project folder. If
+you move one, move both. This is separate from the self-contained release app,
+which carries its runtime inside the release folder.
 
 ## Layout
 
@@ -155,6 +180,7 @@ docs/                     methods, engine setup, architecture
 - [NOTICE.md](NOTICE.md) — upstream sources, attribution, licensing
 - [docs/METHODS.md](docs/METHODS.md) — every number uFVS computes and how
 - [docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md) — building or installing FVS
+- [docs/RELEASE_BUILD.md](docs/RELEASE_BUILD.md) — creating the self-contained desktop ZIPs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the pieces fit
 
 ## License

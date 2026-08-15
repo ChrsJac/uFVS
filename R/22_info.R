@@ -8,17 +8,11 @@ page_info <- function() {
     card(NULL,
       p(
         strong("uFVS"),
-        " is an open-source interface for working with forest inventory data and the Forest Vegetation Simulator (FVS)."
+        " is an open-source interface for working with forest inventory data and FVS."
       ),
-      p("It helps users prepare inputs, build management scenarios, run FVS, and review results."),
       div(
         class = "disclaimer",
-        strong("uFVS is independent. "),
-        "It is not affiliated with, endorsed by, maintained by, or an official product of FVS or the U.S. Forest Service (USFS)."
-      ),
-      p(
-        class = "muted small",
-        "FVS remains responsible for the modeled simulation results. Upstream notices and project information are in NOTICE.md."
+        "uFVS is independent and is not affiliated with, endorsed by, or an official product of FVS or the U.S. Forest Service (USFS)."
       ),
       uiOutput("info_versions")
     ),

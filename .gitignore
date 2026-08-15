@@ -18,6 +18,7 @@ config/engine.json
 .Rproj.user/
 *.Rproj
 Rplots.pdf
+release/
 
 # FVS output artefacts that can land in the working directory
 *.out

@@ -9,6 +9,46 @@ UFVS_VERSION <- "0.1.0"
 ufvs_root <- function() getOption("ufvs.root", getwd())
 ufvs_config_dir <- function() file.path(ufvs_root(), "config")
 
+# A release has its own R runtime, package library, and platform-specific FVS
+# engine. Keep this test in one place so the launcher, app, and data paths
+# cannot accidentally disagree about whether the app is portable.
+ufvs_is_release <- function() {
+  override <- getOption("ufvs.release", NULL)
+  if (!is.null(override)) return(isTRUE(override))
+  env <- tolower(Sys.getenv("UFVS_RELEASE", unset = ""))
+  if (env %in% c("1", "true", "yes", "y")) return(TRUE)
+  root <- ufvs_root()
+  file.exists(file.path(root, "BUILD_INFO.json")) &&
+    dir.exists(file.path(root, "runtime"))
+}
+
+ufvs_release_info_path <- function() file.path(ufvs_root(), "BUILD_INFO.json")
+
+ufvs_release_info <- function() {
+  p <- ufvs_release_info_path()
+  if (!file.exists(p) || !requireNamespace("jsonlite", quietly = TRUE)) return(NULL)
+  out <- try(jsonlite::fromJSON(p, simplifyVector = FALSE), silent = TRUE)
+  if (inherits(out, "try-error") || !is.list(out)) NULL else out
+}
+
+ufvs_runtime_dir <- function() file.path(ufvs_root(), "runtime")
+ufvs_bundled_library <- function() file.path(ufvs_root(), "library")
+
+# This is the path callr workers should inherit in a release.  The macOS build
+# supplies a relocatable wrapper; Windows uses the bundled Rscript.exe.
+ufvs_bundled_rscript <- function() {
+  if (.Platform$OS.type == "windows") {
+    file.path(ufvs_runtime_dir(), "R", "bin", "Rscript.exe")
+  } else {
+    direct <- file.path(ufvs_runtime_dir(), "Rscript")
+    if (file.exists(direct)) direct else {
+      f <- list.files(ufvs_runtime_dir(), pattern = "^Rscript$", recursive = TRUE,
+                      full.names = TRUE)
+      if (length(f)) f[1] else direct
+    }
+  }
+}
+
 # Runtime state must not require write access to the directory containing the
 # application. This matters on Windows when uFVS is unpacked below a protected
 # directory, and it makes a read-only copy of the app portable.
@@ -17,6 +57,25 @@ ufvs_user_data_dir <- function() {
   if (nzchar(override)) {
     dir.create(override, showWarnings = FALSE, recursive = TRUE)
     return(normalizePath(override, mustWork = FALSE))
+  }
+
+  # Extracted release folders may be read-only (Program Files, a mounted disk,
+  # or a user's Downloads quarantine). Never put mutable state beside them.
+  if (ufvs_is_release()) {
+    home <- path.expand("~")
+    base <- if (.Platform$OS.type == "windows") {
+      x <- Sys.getenv("LOCALAPPDATA", unset = "")
+      if (is_blank(x)) x <- Sys.getenv("APPDATA", unset = "")
+      if (is_blank(x)) home else x
+    } else if (identical(Sys.info()[["sysname"]], "Darwin")) {
+      file.path(home, "Library", "Application Support")
+    } else {
+      x <- Sys.getenv("XDG_DATA_HOME", unset = "")
+      if (is_blank(x)) file.path(home, ".local", "share") else x
+    }
+    out <- file.path(base, "uFVS")
+    dir.create(out, showWarnings = FALSE, recursive = TRUE)
+    return(normalizePath(out, mustWork = FALSE))
   }
 
   local <- file.path(ufvs_root(), ".ufvs-data")
@@ -51,6 +110,11 @@ ufvs_project_path <- function() file.path(ufvs_user_data_dir(), "project.json")
 #' Lives beside the application when that is writable so projects are easy to
 #' find, and falls back to the user data directory otherwise.
 ufvs_projects_dir <- function() {
+  if (ufvs_is_release()) {
+    d <- file.path(ufvs_user_data_dir(), "projects")
+    dir.create(d, showWarnings = FALSE, recursive = TRUE)
+    return(d)
+  }
   local <- file.path(ufvs_root(), "projects")
   if (!dir.exists(local)) dir.create(local, showWarnings = FALSE, recursive = TRUE)
   if (dir.exists(local) && file.access(local, mode = 2) == 0) return(local)
@@ -60,16 +124,18 @@ ufvs_projects_dir <- function() {
 }
 
 #' A filesystem-safe file name for a project.
-project_file_for <- function(name) {
+project_file_for <- function(name, dir = ufvs_projects_dir()) {
   stem <- gsub("[^A-Za-z0-9._-]+", "_", nz(name, "Untitled project"))
   stem <- sub("^_+|_+$", "", stem)
   if (!nzchar(stem)) stem <- "Untitled_project"
-  file.path(ufvs_projects_dir(), paste0(stem, ".ufvs.json"))
+  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+  file.path(dir, paste0(stem, ".ufvs.json"))
 }
 
 #' Saved projects, newest first.
-list_projects <- function() {
-  f <- list.files(ufvs_projects_dir(), pattern = "\\.json$", full.names = TRUE)
+list_projects <- function(dir = ufvs_projects_dir()) {
+  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+  f <- list.files(dir, pattern = "\\.json$", full.names = TRUE)
   if (!length(f)) {
     return(data.frame(name = character(0), path = character(0),
                       modified = character(0), stringsAsFactors = FALSE))
@@ -168,6 +234,7 @@ engine_variants_in_dir <- function(dir) {
 #' Candidate directories containing an already-installed official FVS build.
 engine_directory_candidates <- function() {
   out <- ufvs_engine_dir()
+  if (ufvs_is_release()) return(out)
   if (.Platform$OS.type == "windows") {
     pf <- Sys.getenv("ProgramFiles", unset = "")
     pf32 <- Sys.getenv("ProgramFiles(x86)", unset = "")
@@ -229,6 +296,10 @@ default_engine_config <- function() {
 }
 
 load_engine_config <- function() {
+  # A release is intentionally self-contained. Ignore a stale developer
+  # setting in the user's data directory so it cannot redirect a release to a
+  # different binary or make a clean-machine run depend on an installation.
+  if (ufvs_is_release()) return(default_engine_config())
   p <- ufvs_engine_config_path()
   if (!file.exists(p)) return(default_engine_config())
   out <- try(jsonlite::fromJSON(p, simplifyVector = TRUE), silent = TRUE)

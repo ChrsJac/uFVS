@@ -28,7 +28,7 @@ if [ -z "$RSCRIPT" ]; then
   exit 1
 fi
 
-MISSING=$("$RSCRIPT" -e 'p <- c("shiny","ggplot2","jsonlite","DBI","RSQLite","readxl","callr"); m <- p[!p %in% rownames(installed.packages())]; cat(paste(m, collapse=" "))')
+MISSING=$("$RSCRIPT" -e 'p <- c("shiny","ggplot2","jsonlite","DBI","RSQLite","readxl","callr","digest"); m <- p[!p %in% rownames(installed.packages())]; cat(paste(m, collapse=" "))')
 if [ -n "$MISSING" ]; then
   echo "uFVS needs these R packages: $MISSING"
   read -r -p "Install them now? [y/N] " reply

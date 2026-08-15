@@ -269,6 +269,37 @@ orphan <- bad; orphan$trees$STAND_ID <- "9"
 ok("tree records with no stand record are an error",
    any(validate_project(orphan)$severity == "error"))
 
+section("Schema and CSV import fail clearly")
+
+malformed <- list(
+  stands = data.frame(STAND_ID = "1", stringsAsFactors = FALSE),
+  trees = data.frame(STAND_ID = "1", stringsAsFactors = FALSE), plots = NULL)
+schema_issues <- validate_schema(malformed)
+ok("schema validation runs before semantic validation",
+   schema_blocks(schema_issues))
+ok("a missing required tree column is named",
+   any(grepl("DIAMETER", schema_issues$message)))
+ok("malformed data does not throw a deep subscript error",
+   !inherits(try(validate_project(malformed), silent = TRUE), "try-error"))
+
+csv_root <- tempfile("ufvs-csv-set-"); dir.create(csv_root)
+csv_stands <- data.frame(STAND_ID = "C1", VARIANT = "sn", INV_YEAR = 2024,
+                         NUM_PLOTS = 1, stringsAsFactors = FALSE)
+csv_trees <- data.frame(STAND_ID = "C1", PLOT_ID = "1", TREE_ID = 1,
+                        SPECIES = "LP", DIAMETER = 10, stringsAsFactors = FALSE)
+csv_stand_path <- file.path(csv_root, "FVS_StandInit.csv")
+csv_tree_path <- file.path(csv_root, "FVS_TreeInit.csv")
+utils::write.csv(csv_stands, csv_stand_path, row.names = FALSE)
+utils::write.csv(csv_trees, csv_tree_path, row.names = FALSE)
+csv_data <- import_fvs_data(c(csv_stand_path, csv_tree_path),
+                            names = c("FVS_StandInit.csv", "FVS_TreeInit.csv"))
+ok("paired CSV files import as one FVS inventory",
+   nrow(csv_data$stands) == 1 && nrow(csv_data$trees) == 1)
+ok("CSV source metadata keeps every selected file",
+   length(csv_data$source$paths) == 2)
+ok("a single CSV cannot masquerade as a complete inventory",
+   inherits(try(import_fvs_data(csv_stand_path), silent = TRUE), "try-error"))
+
 # ------------------------------------------------------------------------------
 section("Keyword generation")
 
@@ -320,6 +351,12 @@ ok("keyword file requests the output tables uFVS reads",
 ok("keyword file ends with PROCESS then STOP",
    grepl("PROCESS", kf) && grepl("STOP", kf))
 ok("raw user keywords are passed through verbatim", grepl("SDIMAX", kf))
+# MgmtId is an A4 keyword whose value is read from the following record.
+kf_mgmt_lines <- strsplit(build_keyword_file("69", sc, title = "T",
+                                              inv_years = list("69" = 2024)), "\n")[[1]]
+mgmt_at <- which(trimws(kf_mgmt_lines) == "MgmtId")[1]
+ok("MgmtId places its four-character value on the next record",
+   length(mgmt_at) == 1 && identical(trimws(kf_mgmt_lines[mgmt_at + 1]), "THIN"))
 # FVS treats '*' and blank records as comments (base/keyrdr.f). Anything else at
 # the start of a record is parsed as a keyword.
 comment_lines <- grep("^[!#]", strsplit(kf, "\n")[[1]], value = TRUE)
@@ -368,6 +405,19 @@ ok("TimeInt leaves the cycle-number field blank",
    length(ti) == 1 && !nzchar(trimws(substr(ti[1], 11, 20))), paste(ti, collapse = "|"))
 ok("TimeInt puts the cycle length in field 2",
    length(ti) == 1 && identical(trimws(substr(ti[1], 21, 30)), "5"))
+
+control_sc <- list(name = "Controls", cycles = 3, cycle_length = 5,
+                   events = list(), raw_keywords = "",
+                   volume = list(use_defaults = FALSE,
+                                 keywords = list(list(keyword = "Volume",
+                                                      values = keyword_defaults("Volume")))),
+                   computes = list(list(name = "BA2", expr = "BA*2", when = "0")))
+kf_controls <- build_keyword_file("T1", control_sc, title = "controls",
+                                  inv_years = list(T1 = 2024))
+ok("Volume settings reach the generated keyword file",
+   any(grepl("^Volume", strsplit(kf_controls, "\n")[[1]])))
+ok("Event Monitor Compute settings reach the generated keyword file",
+   grepl("Compute", kf_controls, fixed = TRUE) && grepl("BA2 = BA*2", kf_controls, fixed = TRUE))
 
 # ------------------------------------------------------------------------------
 section("Stand visualization reads FVS's own SVS output")
@@ -475,7 +525,8 @@ if (!file.exists(samp)) {
   base_sc <- list(name = "Base", cycles = 4, cycle_length = 5, events = list())
 
   run_and_wait <- function(engine) {
-    prep <- prepare_run(data, base_sc, sid, engine, title = "test")
+    prep <- prepare_run(data, base_sc, sid, engine, title = "test",
+                        runs_dir = file.path(tempdir(), "ufvs-run-tests"))
     job <- launch_run(prep, engine)
     # A job refused before launch has no process to wait on.
     if (is.null(job$handle)) return(run_status(job))
@@ -518,6 +569,34 @@ section("Hashing")
 ok("distinct inputs hash differently", short_hash("abc") != short_hash("abd"))
 ok("hashing is stable", short_hash("abc") == short_hash("abc"))
 ok("hashes are not degenerate", !grepl("^0+$", short_hash(list(1, 2))))
+if (exists("data") && is.list(data)) {
+  h0 <- inventory_hash(data)
+  changed_tree <- data
+  changed_tree$trees$DIAMETER[1] <- changed_tree$trees$DIAMETER[1] + 0.01
+  ok("a change after the first tree is detectable", inventory_hash(changed_tree) != h0)
+
+  changed_plot <- data
+  changed_plot$plots <- data.frame(STAND_ID = data$stands$STAND_ID[1], PLOT_ID = "1",
+                                   stringsAsFactors = FALSE)
+  ok("the plot table contributes to the inventory hash", inventory_hash(changed_plot) != h0)
+  ok("the reference configuration has a full SHA-256 hash",
+     grepl("^[0-9a-f]{64}$", config_hash()))
+}
+
+dispatch_dir <- tempfile("ufvs-engines-"); dir.create(dispatch_dir)
+sn_exe <- file.path(dispatch_dir, "FVSsn"); so_exe <- file.path(dispatch_dir, "FVSso")
+file.create(sn_exe); file.create(so_exe); Sys.chmod(c(sn_exe, so_exe), "0755")
+mix <- list(
+  stands = data.frame(STAND_ID = c("S1", "S2"), VARIANT = c("sn", "so"),
+                      stringsAsFactors = FALSE),
+  trees = data.frame(STAND_ID = c("S1", "S2"), DIAMETER = c(10, 10),
+                     stringsAsFactors = FALSE))
+disp <- check_variant_dispatch(mix, c("S1", "S2"),
+                               list(mode = "bundled", path = dispatch_dir))
+ok("mixed variants are dispatched to their matching executables",
+   nrow(disp) == 2 && all(disp$ok))
+ok("a mismatched configured executable is refused",
+   !resolve_engine_exe(list(mode = "executable", path = sn_exe), "so")$ok)
 
 # ------------------------------------------------------------------------------
 cat(sprintf("\n%s\n%d passed, %d failed\n", strrep("-", 60), PASS, FAIL))

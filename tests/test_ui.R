@@ -10,6 +10,7 @@
 # ------------------------------------------------------------------------------
 
 options(ufvs.root = normalizePath(getwd()))
+options(ufvs.user_dir = file.path(tempdir(), "ufvs-ui-user"))
 suppressPackageStartupMessages({
   library(shiny); library(ggplot2); library(jsonlite)
   library(DBI); library(RSQLite); library(readxl); library(callr); library(digest)
@@ -164,6 +165,42 @@ for (nm in names(results$rows)) {
   ok(nm, is.na(results$rows[[nm]]), nz(results$rows[[nm]], ""))
 }
 
+# Regression: projects written by older versions can contain JSON "NA" strings
+# and a dataset path. Restore must normalize those values before the reactive
+# controls test them, or the Statistics / Management pages throw length/type
+# errors while opening the project.
+restore_project_file <- file.path(tempdir(), "ufvs-restore-project.ufvs.json")
+jsonlite::write_json(list(
+  version = UFVS_VERSION,
+  project = list(name = "Restored", owner = "", acres = "NA"),
+  stats = list(enabled = TRUE, preset = "basic", stats = c("mean", "ci", "se_pct"),
+               confidence_level = 95, fpc = FALSE, population_plots = "NA",
+               tract_acres = "NA", design = "srs"),
+  products = default_products(), volume = default_volume_settings(),
+  scenarios = list(Base = list(name = "Base", cycles = 3, cycle_length = 5,
+                               start_year = "NA", events = list(),
+                               raw_keywords = "", computes = list())),
+  current = "Base",
+  dataset = list(path = upload, paths = upload, names = basename(upload), type = "sqlite",
+                 name = basename(upload))),
+  restore_project_file, auto_unbox = TRUE, pretty = TRUE, null = "null")
+restore <- new.env(parent = emptyenv())
+testServer(ufvs_server, {
+  session$setInputs(proj_load_file = NULL)
+  session$setInputs(proj_load_file = data.frame(
+    name = basename(restore_project_file), datapath = restore_project_file,
+    size = file.size(restore_project_file), type = "application/json",
+    stringsAsFactors = FALSE))
+  restore$summary <- tryCatch({ invisible(output$summary_body); TRUE }, error = function(e) FALSE)
+  restore$timeline <- tryCatch({ invisible(output$mg_scenario_bar); TRUE }, error = function(e) FALSE)
+  restore$stats <- tryCatch({ invisible(output$stat_preview); TRUE }, error = function(e) FALSE)
+  restore$loaded <- !is.null(rv$data) && identical(rv$project$name, "Restored")
+})
+ok("a saved project reloads its inventory", isTRUE(restore$loaded))
+ok("restored project settings do not break Stand Summary", isTRUE(restore$summary))
+ok("restored JSON NA values do not break the timeline", isTRUE(restore$timeline))
+ok("restored JSON NA values do not break Statistics", isTRUE(restore$stats))
+
 # ------------------------------------------------------------------------------
 cat("\nResult controls are populated once a run exists\n")
 
@@ -192,6 +229,17 @@ fake_results <- list(
     SCuFt = c(0, 0, 15, 28, 50, 78), BdFt = c(0, 0, 60, 140, 300, 480),
     SCENARIO = "Base", stringsAsFactors = FALSE))
 
+variant_results <- function(x, scenario, variant, scale = 1) {
+  lapply(x, function(d) {
+    if (is.null(d)) return(NULL)
+    d$SCENARIO <- scenario
+    d$VARIANT <- variant
+    for (nm in intersect(c("Tpa", "TPA", "BA", "TCuFt", "MCuFt", "SCuFt", "BdFt"), names(d)))
+      d[[nm]] <- d[[nm]] * scale
+    d
+  })
+}
+
 ctrl <- new.env(parent = emptyenv())
 testServer(ufvs_server, {
   # Deliberately no dataset upload here. Loading one clears rv$results, and the
@@ -201,6 +249,7 @@ testServer(ufvs_server, {
 
   ctrl$chart <- paste(as.character(output$ch_controls), collapse = "")
   ctrl$table <- paste(as.character(output$tb_controls), collapse = "")
+  ctrl$standstock <- paste(as.character(output$ss_controls), collapse = "")
 
   session$setInputs(ch_x = "Year", ch_y = "BA", ch_group = "None",
                     ch_facet_row = "None", ch_facet_col = "None",
@@ -215,6 +264,10 @@ ok("chart Y menu offers a measured variable", has_option(ctrl$chart, "BA"))
 ok("chart color menu offers a grouping variable", has_option(ctrl$chart, "SpeciesFVS"))
 ok("table source menu offers the output tables",
    has_option(ctrl$table, "StandSummary") && has_option(ctrl$table, "TreeList"))
+ok("single-scenario Stand & Stock keeps its scenario picker visible",
+   grepl('id="ss_scenarios"', ctrl$standstock, fixed = TRUE))
+ok("single-scenario Tables keeps its scenario picker visible",
+   grepl('id="tb_scenarios"', ctrl$table, fixed = TRUE))
 ok("Year is offered as a grouping column, not only as a total",
    has_option(ctrl$table, "Year"))
 ok("a valid chart validates", grepl("msg-ok", ctrl$valid))
@@ -234,6 +287,43 @@ ok("and it says what to do", grepl("Choose", nz(v$message, "")))
 v2 <- tryCatch(validate_chart(blank, list(), character(0)),
                error = function(e) list(ok = NA, message = conditionMessage(e)))
 ok("an unset chart with no run at all is also handled", identical(v2$ok, FALSE))
+
+# Results pages keep scenario, variant, year, and species selections together.
+# This catches regressions where a multiple-scenario picker renders but the
+# underlying output silently falls back to the first result.
+multi <- new.env(parent = emptyenv())
+testServer(ufvs_server, {
+  rv$results <- list(
+    Base = variant_results(fake_results, "Base", "SN"),
+    Thin = variant_results(fake_results, "Thin", "NE", scale = 1.1))
+
+  session$setInputs(ch_scenarios = c("Base", "Thin"), ch_x = "Year", ch_y = "TPA",
+                    ch_group = "SCENARIO", ch_facet = "SpeciesFVS",
+                    ch_facet_col = "None", ch_summary = "mean", ch_scales = "fixed")
+  multi$chart_controls <- paste(as.character(output$ch_controls), collapse = "")
+  multi$chart_valid <- paste(as.character(output$ch_validation), collapse = "")
+  multi$chart_plot <- tryCatch({ invisible(output$ch_plot); TRUE }, error = function(e) FALSE)
+
+  session$setInputs(tb_scenarios = c("Base", "Thin"), tb_layout = "separate",
+                    tb_source = "StandSummary", tb_group = "Year", tb_values = "BA")
+  multi$table_result <- paste(as.character(output$tb_result), collapse = "")
+
+  session$setInputs(ss_scenarios = c("Base", "Thin"), ss_variant = "NE", ss_year = 2024)
+  multi$ss_controls <- paste(as.character(output$ss_controls), collapse = "")
+  multi$ss_table <- paste(as.character(output$ss_table), collapse = "")
+  multi$ss_species <- paste(as.character(output$ss_species), collapse = "")
+})
+
+ok("chart scenario picker keeps multiple scenarios",
+   has_option(multi$chart_controls, "Base") && has_option(multi$chart_controls, "Thin"))
+ok("chart facet menu includes species", has_option(multi$chart_controls, "SpeciesFVS"))
+ok("multiple-scenario species chart validates", grepl("msg-ok", multi$chart_valid))
+ok("multiple-scenario species chart renders", isTRUE(multi$chart_plot))
+ok("separate scenario tables render on one page",
+   length(unlist(regmatches(multi$table_result, gregexpr("<table", multi$table_result, fixed = TRUE)))) >= 2)
+ok("Stand & Stock offers the selected variant", has_option(multi$ss_controls, "NE"))
+ok("Stand & Stock uses the selected projection year", grepl("2024", multi$ss_table))
+ok("projected species values use the selected variant", grepl("NE", multi$ss_species))
 
 # ------------------------------------------------------------------------------
 cat(sprintf("\n%s\n%d passed, %d failed\n", strrep("-", 60), PASS, FAIL))

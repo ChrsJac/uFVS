@@ -93,10 +93,13 @@ check_variant_dispatch <- function(data, stand_ids, engine = load_engine_config(
 
 #' Create a fresh run directory and write everything the engine needs into it.
 prepare_run <- function(data, scenario, stand_ids, engine = load_engine_config(),
-                        title = "uFVS run", run_id = NULL, dataset_hash = NULL) {
+                        title = "uFVS run", run_id = NULL, dataset_hash = NULL,
+                        runs_dir = NULL) {
   stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
   rid <- nz(run_id, paste0(stamp, "_", substr(sha256_of(list(scenario, stand_ids)), 1, 6)))
-  dir <- file.path(ufvs_runs_dir(), rid)
+  runs_dir <- nz(runs_dir, ufvs_runs_dir())
+  dir.create(runs_dir, showWarnings = FALSE, recursive = TRUE)
+  dir <- file.path(runs_dir, rid)
   dir.create(dir, showWarnings = FALSE, recursive = TRUE)
 
   # Only the stands being run go into the engine's input database.
@@ -369,8 +372,15 @@ diagnose_failure <- function(dir) {
 }
 
 #' Every run uFVS has recorded, newest first.
-list_runs <- function() {
-  dirs <- list.dirs(ufvs_runs_dir(), recursive = FALSE)
+list_runs <- function(runs_dir = NULL) {
+  runs_dir <- nz(runs_dir, ufvs_runs_dir())
+  if (!dir.exists(runs_dir)) {
+    return(data.frame(run_id = character(0), created = character(0), scenario = character(0),
+                      stands = integer(0), status = character(0),
+                      dataset_hash = character(0), dataset_name = character(0),
+                      dir = character(0), stringsAsFactors = FALSE))
+  }
+  dirs <- list.dirs(runs_dir, recursive = FALSE)
   metas <- lapply(dirs, function(d) {
     p <- file.path(d, "run.json")
     if (!file.exists(p)) return(NULL)
@@ -401,12 +411,12 @@ list_runs <- function() {
 #' Returns one job per stand; the caller polls them and reports per-stand
 #' outcomes.
 launch_batch <- function(data, scenario, stand_ids, engine = load_engine_config(),
-                         title = "uFVS batch", dataset_hash = NULL) {
+                         title = "uFVS batch", dataset_hash = NULL, runs_dir = NULL) {
   # One job per stand keeps a bad stand from taking the others down, and it
   # guarantees each stand runs under its own variant's executable.
   lapply(stand_ids, function(sid) {
     prep <- prepare_run(data, scenario, sid, engine, title = paste(title, sid),
-                        dataset_hash = dataset_hash)
+                        dataset_hash = dataset_hash, runs_dir = runs_dir)
     launch_run(prep, engine)
   })
 }
@@ -417,14 +427,14 @@ launch_batch <- function(data, scenario, stand_ids, engine = load_engine_config(
 #' the run is split into one job per variant rather than pushing every stand
 #' through whichever executable happened to be first.
 launch_by_variant <- function(data, scenario, stand_ids, engine = load_engine_config(),
-                              title = "uFVS run", dataset_hash = NULL) {
+                              title = "uFVS run", dataset_hash = NULL, runs_dir = NULL) {
   groups <- stands_by_variant(data, stand_ids)
   out <- list()
   for (v in names(groups)) {
     ids <- groups[[v]]
     prep <- prepare_run(data, scenario, ids, engine,
                         title = if (length(groups) > 1) paste(title, toupper(v)) else title,
-                        dataset_hash = dataset_hash)
+                        dataset_hash = dataset_hash, runs_dir = runs_dir)
     out[[length(out) + 1L]] <- launch_run(prep, engine)
   }
   out

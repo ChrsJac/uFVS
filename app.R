@@ -10,6 +10,16 @@
 #         or: Rscript -e 'shiny::runApp(".", launch.browser=TRUE)'
 # ------------------------------------------------------------------------------
 
+# Set the root and bundled package library before loading any package. Release
+# launchers set UFVS_RELEASE and provide a private library; a source checkout
+# continues to use the normal R library paths.
+options(ufvs.root = normalizePath(getwd(), mustWork = TRUE))
+bundled_library <- file.path(getOption("ufvs.root"), "library")
+if (dir.exists(bundled_library)) {
+  .libPaths(unique(c(bundled_library, .libPaths())))
+  Sys.setenv(R_LIBS_USER = bundled_library)
+}
+
 suppressPackageStartupMessages({
   library(shiny)
   library(ggplot2)
@@ -28,7 +38,6 @@ if (requireNamespace("rgl", quietly = TRUE)) {
   suppressPackageStartupMessages(library(rgl))
 }
 
-options(ufvs.root = normalizePath(getwd()))
 options(shiny.maxRequestSize = 200 * 1024^2)   # cruise workbooks get large
 
 for (f in sort(list.files("R", pattern = "\\.R$", full.names = TRUE))) source(f)
