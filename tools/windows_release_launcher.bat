@@ -15,5 +15,5 @@ if not exist "%~dp0runtime\R\bin\Rscript.exe" (
 if errorlevel 1 (
   echo.
   echo uFVS stopped with an error. The window is being kept open so you can read it.
-  pause
+  if /I not "%UFVS_NO_PAUSE%"=="1" pause
 )

@@ -113,11 +113,15 @@ jobs:
           $port = 18767
           $env:UFVS_PORT = "$port"
           $env:UFVS_LAUNCH_BROWSER = "0"
+          $env:UFVS_NO_PAUSE = "1"
           $launcher = Join-Path $verify "Start uFVS.bat"
           $launcherArg = '"' + $launcher + '"'
+          $stdoutLog = Join-Path $env:RUNNER_TEMP "ufvs-start-batch.stdout.log"
+          $stderrLog = Join-Path $env:RUNNER_TEMP "ufvs-start-batch.stderr.log"
           $process = Start-Process -FilePath $env:ComSpec `
             -ArgumentList @("/d", "/c", $launcherArg) `
-            -WorkingDirectory $verify -PassThru -WindowStyle Hidden
+            -WorkingDirectory $verify -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
           try {
             $passed = $false
             for ($attempt = 1; $attempt -le 60; $attempt++) {
@@ -130,7 +134,11 @@ jobs:
               } catch { }
               Start-Sleep -Milliseconds 500
             }
-            if (!$passed) { throw "Start uFVS.bat did not serve the local uFVS page." }
+            if (!$passed) {
+              if (Test-Path $stdoutLog) { Get-Content $stdoutLog }
+              if (Test-Path $stderrLog) { Get-Content $stderrLog }
+              throw "Start uFVS.bat did not serve the local uFVS page."
+            }
             "Start uFVS.bat launch smoke passed at http://127.0.0.1:$port/" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           } finally {
             & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
