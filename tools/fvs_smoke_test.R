@@ -15,7 +15,7 @@ engine <- value_for("--engine", file.path(root, "engine", "FVSsn"))
 if (!nzchar(root) || !dir.exists(root)) stop("--root must name the staged release.", call. = FALSE)
 canonical_path <- function(path) {
   path <- normalizePath(path, mustWork = TRUE)
-  path <- chartr("\\\\", "/", path)
+  path <- chartr("\\", "/", path)
   if (.Platform$OS.type == "windows") path <- tolower(path)
   sub("/+$", "", path)
 }
