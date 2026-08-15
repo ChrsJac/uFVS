@@ -1,0 +1,30 @@
+variable,label,units,source_table,level,type,role_x,role_y,role_group,role_facet,provenance,notes
+Year,Year,year,"StandSummary,TreeList,CutList",stand,integer,TRUE,TRUE,FALSE,TRUE,FVS,Projection year
+Age,Stand age,years,StandSummary,stand,numeric,TRUE,TRUE,FALSE,TRUE,FVS,
+Tpa,Trees per acre,trees/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,Live trees after treatment
+BA,Basal area,ft2/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+QMD,Quadratic mean diameter,in,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+TopHt,Top height,ft,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+SDI,Stand density index,index,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+ReinekeSDI,Reineke SDI,index,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+CCF,Crown competition factor,percent,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+TCuFt,Total cubic volume,ft3/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,National Volume Estimator Library
+MCuFt,Merchantable cubic volume,ft3/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,National Volume Estimator Library
+SCuFt,Sawlog cubic volume,ft3/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,National Volume Estimator Library
+BdFt,Board foot volume,bd ft/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,National Volume Estimator Library
+RTpa,Removed trees per acre,trees/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,Harvest removals
+RTCuFt,Removed total cubic,ft3/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,Harvest removals
+RMCuFt,Removed merchantable cubic,ft3/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,Harvest removals
+RBdFt,Removed board feet,bd ft/ac,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,Harvest removals
+Acc,Accretion,ft3/ac/yr,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+Mort,Mortality,ft3/ac/yr,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+MAI,Mean annual increment,ft3/ac/yr,StandSummary,stand,numeric,FALSE,TRUE,FALSE,FALSE,FVS,
+StandID,Stand,,"StandSummary,TreeList,CutList",stand,categorical,TRUE,FALSE,TRUE,TRUE,FVS,
+SCENARIO,Scenario,,"StandSummary,TreeList,CutList",stand,categorical,TRUE,FALSE,TRUE,TRUE,uFVS calculated,Assigned by uFVS when a run is labelled
+DBH,Diameter at breast height,in,"TreeList,CutList",tree,numeric,TRUE,TRUE,FALSE,TRUE,FVS,
+Ht,Total height,ft,"TreeList,CutList",tree,numeric,TRUE,TRUE,FALSE,FALSE,FVS,
+TPA,Trees per acre represented,trees/ac,"TreeList,CutList",tree,numeric,FALSE,TRUE,FALSE,FALSE,FVS,Expansion factor of the tree record
+SpeciesFVS,Species,,"TreeList,CutList",tree,categorical,TRUE,FALSE,TRUE,TRUE,FVS,FVS alpha code
+PtIndex,Plot,,"TreeList,CutList",tree,categorical,TRUE,FALSE,TRUE,TRUE,FVS,Sampling unit
+PRODUCT,Product class,,"TreeList,CutList",tree,categorical,TRUE,FALSE,TRUE,TRUE,uFVS calculated,User-defined diameter and species class
+PctCr,Crown ratio,percent,"TreeList,CutList",tree,numeric,FALSE,TRUE,FALSE,FALSE,FVS,

@@ -1,0 +1,31 @@
+# Run directories: inputs, outputs and logs for individual FVS runs.
+# Keep the folder, not its contents.
+runs/*
+!runs/.gitkeep
+
+# Saved project state
+project.json
+.ufvs-data/
+projects/*.ufvs.json
+!projects/.gitkeep
+
+# Engine configuration is machine-specific
+config/engine.json
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+Rplots.pdf
+
+# FVS output artefacts that can land in the working directory
+*.out
+*.sum
+*.trl
+*.key.bak
+FVSOut.db
+FVS_Data.db
+
+# macOS
+.DS_Store
