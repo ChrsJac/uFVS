@@ -1,189 +1,121 @@
 # uFVS
 
-An independent, open-source interface for the USDA Forest Service **Forest
-Vegetation Simulator**.
+An accessible interface for the USDA Forest Service Forest Vegetation Simulator.
 
-uFVS is not FVS and does not reimplement it. It is the layer around FVS: reading
-inventories the way FVS reads them, showing what FVS will assume before you run,
-building keyword files from a management plan you can see, running the engine
-where it cannot take the interface down with it, and reporting the results with
-the inventory statistics a cruiser actually asks for.
+## Download
 
-> uFVS is **not** an official USDA Forest Service product and is not endorsed by
-> the USDA Forest Service. See [NOTICE.md](NOTICE.md).
+### Windows
 
-## What it does
+[Download uFVS for Windows](https://github.com/ChrsJac/uFVS/releases/latest/download/uFVS-Windows-x64.zip)
 
-**Inventory**
-- Reads FVS input databases (SQLite), Excel workbooks with `FVS_StandInit` /
-  `FVS_PlotInit` / `FVS_TreeInit` sheets, or CSVs using those table names.
-- Resolves the sampling design exactly as FVS does, including per-variant
-  defaults, and *tells you which values it had to default*.
-- Validates before you run: unknown species for the variant, plot counts that
-  will stop FVS, missing design fields, missing heights.
+### macOS
 
-**Statistics**
-- Confidence intervals, sampling error, CV, SD, variance, standard error,
-  margin of error, RSE, df, t, and descriptive statistics — as checkboxes that
-  add columns to the tables you are already looking at.
-- Confidence level is any number between 0 and 100, not a fixed list.
-- Required-plot calculation for a target sampling error.
-- Everything is computed **across sampling units**, never by treating expanded
-  tree records as independent observations.
+[Download uFVS for macOS (Apple Silicon)](https://github.com/ChrsJac/uFVS/releases/latest/download/uFVS-macOS-arm64.zip)
 
-**Management**
-- A timeline of scheduled activities, each one a real FVS keyword.
-- 328 keywords across 13 extensions with their official fields, descriptions and
-  defaults; advanced fields are collapsed, never removed.
-- The keyword record uFVS will write is always visible, and a raw keyword editor
-  is always available.
+## How to run
 
-**Products**
-- User-defined product classes: a diameter range and an optional species list.
-- Applied to FVS's own output, so you can see how much of each class you have,
-  by species, without losing FVS's lumped totals.
-- uFVS checks that class subtotals reconcile with FVS's totals and says so if
-  they do not.
+**Windows**
 
-**Running**
-- FVS runs in a separate OS process, in its own directory, with its own inputs,
-  outputs and logs. An engine crash ends the worker and nothing else.
-- Every run records its engine path, input hash, keyword hash and platform.
+1. Download the Windows ZIP.
+2. Extract it.
+3. Double-click `Start uFVS.bat`.
 
-**Stand visualization**
-- FVS writes Stand Visualization System files; uFVS reads them and draws the
-  stand at each cycle in 3D, in profile, or from above.
-- Tree positions, crown radii and crown ratios are FVS's own. The 3D view uses
-  the same renderer as the official fvsOL interface.
+**macOS**
 
-**Results**
-- Charts that validate the combination before drawing and explain what is wrong
-  when they cannot.
-- Configurable tables, scenario comparison, and the raw FVS output tables under
-  FVS's own column names.
+1. Download the macOS ZIP.
+2. Extract it.
+3. Double-click `uFVS.app`.
 
-## What it does not do
+No R, RStudio, FVS installation, or Internet connection is required after
+download. The public release ZIPs must keep these asset names stable across
+versions so the links above always point to the newest release:
 
-uFVS computes no growth, mortality, regeneration, volume, taper, biomass, fire
-behavior, or carbon. Those come from FVS. Without an FVS engine, the inventory
-side still works fully and there are no volumes — uFVS will not estimate one.
-The downloadable desktop releases include a platform-specific FVS engine.
+- `uFVS-Windows-x64.zip`
+- `uFVS-macOS-arm64.zip`
 
-## Requirements
+uFVS is an independent interface project. It is not an official USDA Forest
+Service product and is not certified, endorsed, maintained, or supported by
+the USDA Forest Service or the FVS development team. FVS itself performs the
+growth, mortality, volume, biomass, carbon, regeneration, and other FVS
+simulations; uFVS provides the interface and workflow around the engine.
 
-Downloaded Windows and Apple Silicon macOS releases are self-contained. They
-include the tested R runtime, R packages, and native FVS engine; users do not
-need R, RStudio, Internet access, or a separate FVS installation.
+## What uFVS does
 
-The requirements below apply only to a source checkout.
+- Imports FVS SQLite databases, Excel workbooks, and matching CSV input tables.
+- Shows inventory design assumptions, validation issues, statistics, and
+  species-level summaries before a projection is run.
+- Builds visible, editable management plans from FVS keywords.
+- Runs the selected FVS engine in an isolated work directory and keeps the
+  output tables and logs available for review.
+- Compares scenarios with configurable tables, charts, and stand views.
+- Supports user-defined product classes, including species-specific classes.
 
-- R 4.1 or newer
-- Packages: `shiny`, `ggplot2`, `jsonlite`, `DBI`, `RSQLite`, `readxl`, `callr`, `digest`
-- Optional: `rgl` for the 3D stand view. Without it the Visualize page still
-  draws its 2D profile and plan views.
+uFVS does not reimplement FVS or calculate growth, mortality, regeneration,
+volume, taper, biomass, fire behavior, or carbon. Those calculations come from
+FVS.
+
+## Screenshots
+
+The application includes pages for inventory review, management planning,
+projection results, charts, tables, and stand visualization. Screenshots will
+be added here as release examples become available.
+
+## Documentation
+
+- [NOTICE.md](NOTICE.md) — upstream sources, attribution, and licensing
+- [docs/METHODS.md](docs/METHODS.md) — quantities uFVS computes and how
+- [docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md) — engine setup for source checkouts
+- [docs/RELEASE_BUILD.md](docs/RELEASE_BUILD.md) — self-contained desktop releases
+
+## Development / Run from source
+
+The source checkout is for development and testing. It requires R 4.1 or
+newer and these packages:
 
 ```r
-install.packages(c("shiny","ggplot2","jsonlite","DBI","RSQLite","readxl","callr","digest"))
+install.packages(c("shiny", "ggplot2", "jsonlite", "DBI", "RSQLite",
+                   "readxl", "callr", "digest"))
 install.packages("rgl")   # optional, for the 3D stand view
 ```
 
-An FVS engine is optional for inventory work and required for projection in a
-source checkout. See
-[docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md).
+### macOS
 
-## Running it
-
-### Downloadable releases
-
-Download the matching ZIP from GitHub Releases:
-
-- `uFVS-<version>-Windows-x64.zip` for 64-bit Windows.
-- `uFVS-<version>-macOS-arm64.zip` for Apple Silicon Macs.
-
-Extract the ZIP and double-click **Start uFVS.bat** on Windows or **uFVS.app**
-on macOS. The release launcher uses only the files in the extracted folder,
-starts Shiny on `127.0.0.1` using an available local port, and opens the browser.
-It does not install packages or download anything. The macOS beta is unsigned;
-if macOS warns about the app, use Finder's **Open** command once.
-
-### Development checkout — Windows
-
-Unzip the folder, install R from [CRAN](https://cran.r-project.org/bin/windows/base/),
-and double-click **Launch uFVS.bat**. The launcher finds `Rscript.exe`, offers to
-install the required packages into the user's R library, and opens uFVS in the
-browser. It does not require administrator privileges for the app itself.
-
-The copy in this repository contains a macOS FVS engine, so it is intentionally
-ignored on Windows. Inventory analysis works immediately; projection in a
-source checkout requires an official Windows FVS executable such as
-`FVSsn.exe`. See
-[docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md).
-
-### Development checkout — macOS
-
-**Double-click `uFVS.app`** (in the folder above this one). It finds R, checks
-the packages — offering to install any that are missing — starts the server on a
-free port and opens your browser. Anything it does is logged to
-`~/Library/Logs/uFVS.log`.
-
-To quit: right-click uFVS in the Dock and choose Quit, or close the browser tab
-and quit the app from the Dock.
-
-**Or double-click `Launch uFVS.command`** to run it in a Terminal window instead.
-Same thing, but you can watch the output and stop it with Ctrl-C. Use this one
-when something goes wrong and you need to see the error.
-
-**Or from a terminal:**
+Double-click `Launch uFVS.command`, or run:
 
 ```bash
 Rscript -e "shiny::runApp('.', launch.browser = TRUE)"
 ```
 
-Then import your inventory from the Data page. uFVS ships no data of its own.
+The development `uFVS.app` expects to sit next to the `uFVS` project folder.
+The source checkout can use the native engine in `engine/` on the matching
+platform. See [docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md) for details.
 
-Runtime settings, project state, and run logs are stored in a user-writable
-data directory, not beside the application. This allows the same unpacked copy
-to run from a protected or read-only folder.
+### Windows
 
-### If the app will not open
+Double-click `Launch uFVS.bat` after installing R, or run the application from
+an R terminal. Inventory analysis works without an engine; projection in a
+source checkout requires a native Windows FVS executable such as `FVSsn.exe`.
 
-macOS may block a downloaded or unsigned app the first time. Right-click
-`uFVS.app` → **Open** → **Open**, and it will be trusted from then on. If it
-still does nothing, run `Launch uFVS.command` to see the actual error.
+## Technical architecture
 
-The development `uFVS.app` expects to sit next to the `uFVS` project folder. If
-you move one, move both. This is separate from the self-contained release app,
-which carries its runtime inside the release folder.
-
-## Layout
-
-```
-app.R                     launcher
+```text
+app.R                     application entry point
 R/                        modules, numbered in load order
-  00_utils    01_config   02_import    03_validate
-  04_inventory            05_statistics
-  06_fvs_output           07_merch     08_keywords
-  09_runner   10_normalize             11_charts
-  12_svs      13_svsTree_upstream (vendored from fvsOL)
-  20_ui       21_pages    22_info      30_server
-config/                   reference tables transcribed from the FVS source
-tools/                    scripts that regenerate config/ from upstream
-tests/                    verification against the FVS source semantics
-                          (builds its own fixture; set UFVS_TEST_DATA to use
-                          a real inventory instead)
-runs/                     one directory per FVS run
-docs/                     methods, engine setup, architecture
+config/                   reference tables transcribed from FVS source
+tools/                    release and source-data tooling
+tests/                    regression checks and FVS-semantic fixtures
+www/                      application styles and image assets
+docs/                     methods, engine setup, release, and architecture notes
 ```
 
-## Documentation
+The downloadable releases are self-contained. They carry a tested R runtime,
+the required package library, and a platform-specific FVS engine. Runtime
+settings, projects, datasets, and run logs are stored in a user-writable
+application-data directory rather than beside the source or release files.
 
-- [NOTICE.md](NOTICE.md) — upstream sources, attribution, licensing
-- [docs/METHODS.md](docs/METHODS.md) — every number uFVS computes and how
-- [docs/ENGINE_SETUP.md](docs/ENGINE_SETUP.md) — building or installing FVS
-- [docs/RELEASE_BUILD.md](docs/RELEASE_BUILD.md) — creating the self-contained desktop ZIPs
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the pieces fit
+## Licensing
 
-## License
-
-No license has been applied to uFVS-authored code. Upstream notices and the
-terms of the material uFVS builds on are recorded in [NOTICE.md](NOTICE.md).
+No license has been applied to uFVS-authored code in this development checkout.
+Upstream notices and the terms of the material uFVS builds on are recorded in
+[NOTICE.md](NOTICE.md). Do not treat this repository statement as a license for
+FVS, R, R packages, or other third-party components.

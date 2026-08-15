@@ -41,7 +41,7 @@ removes compiler-installation rpaths from FVS, creates `uFVS.app`, writes
 `BUILD_INFO.json`, runs the staged-R smoke test, and creates:
 
 ```text
-release/uFVS-0.1.0-macOS-arm64.zip
+release/uFVS-macOS-arm64.zip
 ```
 
 The resulting app is unsigned and not notarized in this beta pass. macOS may
@@ -66,12 +66,18 @@ The script stages `runtime\R`, the package closure, the FVS executables and
 DLLs, `Start uFVS.bat`, and `BUILD_INFO.json`, then creates:
 
 ```text
-release\uFVS-0.1.0-Windows-x64.zip
+release\uFVS-Windows-x64.zip
 ```
 
 The Windows build script is reproducible from those explicit inputs, but it
 cannot manufacture a Windows R runtime or Windows FVS executable on macOS.
 Those inputs must be obtained and tested on Windows.
+
+The ZIP filenames above are public release asset names and must remain stable
+across versions. Keep the release title and the version recorded in
+`BUILD_INFO.json` versioned, but publish the assets as
+`uFVS-Windows-x64.zip` and `uFVS-macOS-arm64.zip` so README links using
+`/releases/latest/download/` continue to work.
 
 ## Release checklist
 

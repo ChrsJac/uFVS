@@ -194,7 +194,7 @@ if [ "$SKIP_SELF_TEST" -eq 0 ]; then
     "$ROOT/tools/release_self_test.R" --root "$STAGE"
 fi
 
-ZIP="$OUT_DIR/uFVS-$VERSION-macOS-arm64.zip"
+ZIP="$OUT_DIR/uFVS-macOS-arm64.zip"
 rm -f "$ZIP"
 ditto -c -k --norsrc --keepParent "$STAGE" "$ZIP"
 echo "Created $ZIP"

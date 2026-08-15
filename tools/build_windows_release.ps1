@@ -83,7 +83,7 @@ try {
     }
   }
 
-  $Zip = Join-Path $OutDir ("uFVS-" + $Version + "-Windows-x64.zip")
+  $Zip = Join-Path $OutDir "uFVS-Windows-x64.zip"
   if (Test-Path $Zip) { Remove-Item -LiteralPath $Zip -Force }
   Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $Zip -CompressionLevel Optimal
   Write-Host "Created $Zip"
