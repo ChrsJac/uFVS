@@ -53,6 +53,8 @@ jobs:
           git clone --no-checkout $env:FVS_REPOSITORY fvs-source
           git -C fvs-source fetch --depth 1 origin $env:FVS_REVISION
           git -C fvs-source checkout --detach $env:FVS_REVISION
+          git -C fvs-source submodule sync --recursive
+          git -C fvs-source submodule update --init --recursive
           "FVS repository: $env:FVS_REPOSITORY" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "FVS revision: $env:FVS_REVISION" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 

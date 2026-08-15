@@ -1,0 +1,11 @@
+Project: VolumeLibrary (FVS NVEL submodule)
+Repository: https://github.com/FMSC-Measurements/VolumeLibrary
+Parent FVS submodule path: volume/NVEL
+Pinned submodule commit: 4fa39a007973e8fb6a64b3f0c77b03000145fad3
+Parent FVS revision: a17ee9728fe3273e9526d66e66fb4a79bdba6c10
+
+The pinned checkout contains readme.txt and the Fortran volume-library source,
+but no LICENSE/COPYING/NOTICE file or explicit license statement was identified
+in this audit. Do not infer a license from the surrounding FVS notice. Human
+review and, if necessary, upstream clarification are required before relying
+on redistribution rights for this submodule.

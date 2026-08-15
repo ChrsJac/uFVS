@@ -38,6 +38,14 @@ Regenerate the transcribed tables with:
 Rscript tools/extract_fvs_config.R /path/to/ForestVegetationSimulator-main
 ```
 
+The pinned FVS source also declares `volume/NVEL` as a Git submodule from
+[`FMSC-Measurements/VolumeLibrary`](https://github.com/FMSC-Measurements/VolumeLibrary)
+at submodule commit `4fa39a007973e8fb6a64b3f0c77b03000145fad3`. That pinned
+checkout contains a `readme.txt` but no license file or explicit license
+statement was identified during this audit. It is therefore recorded as an
+unresolved release-review item in `THIRD_PARTY/FVS/NVEL-source-reference.txt`,
+and the workflow initializes it rather than silently omitting the volume source.
+
 ### 2. FVS Interface (`rFVS`, `fvsOL`)
 
 - Repository: https://github.com/USDAForestService/ForestVegetationSimulator-Interface

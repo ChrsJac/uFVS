@@ -13,7 +13,9 @@ each package. A package's declared license is not changed to MIT by uFVS.
 The bundled R runtime retains the R Project's own license and copyright files.
 The bundled FVS engine retains the USDA Forest Vegetation Simulator terms and
 the source revision is recorded in `BUILD_INFO.json` and the FVS reference
-files. The FVS Interface material reproduced by uFVS retains its own terms.
+files. The FVS source's NVEL submodule is separately identified in
+`FVS/NVEL-source-reference.txt`. The FVS Interface material reproduced by uFVS
+retains its own terms.
 
 To prepare corresponding source archives for a particular staged release, use:
 
