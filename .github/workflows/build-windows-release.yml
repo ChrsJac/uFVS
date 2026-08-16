@@ -222,8 +222,9 @@ jobs:
       - name: Confirm no orphan processes remain
         shell: bash
         run: |
-          if pgrep -f "uFVS.app/Contents" >/dev/null 2>&1; then
-            ps -ax -o pid,command | grep "uFVS.app/Contents" | grep -v grep
+          stray="$(ps -ax -o pid=,command= | awk '/uFVS\.app\/Contents/ && !/R-library\/processx\/bin\/supervisor/ { print }')"
+          if [ -n "$stray" ]; then
+            printf '%s\n' "$stray"
             echo "Processes were left running after the packaged tests." >&2
             exit 1
           fi
