@@ -4,6 +4,9 @@
 
 ufvs_server <- function(input, output, session) {
 
+  # Packaged mode only: closing the browser window closes uFVS.
+  ufvs_register_desktop_lifecycle(session)
+
   session_runs_dir <- ufvs_runs_dir()
   session_dataset_dir <- file.path(ufvs_user_data_dir(), "datasets")
   dir.create(session_runs_dir, showWarnings = FALSE, recursive = TRUE)

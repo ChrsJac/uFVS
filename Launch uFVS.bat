@@ -1,9 +1,12 @@
 @echo off
 setlocal EnableExtensions
 rem ------------------------------------------------------------------------------
-rem Start uFVS on Windows. Double-click this file from the unpacked uFVS folder.
-rem R and the required R packages are the only prerequisites for inventory work.
+rem DEVELOPMENT launcher. It uses the R installed on this machine and the
+rem packages in your own R library, and runs the source checkout it sits in.
 rem An official Windows FVS executable is additionally required for projections.
+rem
+rem It is not what a released uFVS.exe does: that carries its own R runtime and
+rem never looks at a system R. See docs\RELEASE_BUILD.md.
 rem ------------------------------------------------------------------------------
 
 cd /d "%~dp0"

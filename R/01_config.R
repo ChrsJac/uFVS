@@ -9,6 +9,21 @@ UFVS_VERSION <- "0.1.0"
 ufvs_root <- function() getOption("ufvs.root", getwd())
 ufvs_config_dir <- function() file.path(ufvs_root(), "config")
 
+# Packaged mode moves the runtime, the private package library, the FVS engine,
+# and the read-only resources out of the application directory: on Windows they
+# sit beside uFVS.exe, on macOS they sit inside uFVS.app/Contents/Resources. The
+# launcher is the only thing that knows the packaged shape, and it says so
+# through these variables. A source checkout sets none of them and keeps using
+# the directories beside app.R, so development mode is unaffected.
+ufvs_layout_dir <- function(variable, default) {
+  value <- Sys.getenv(variable, unset = "")
+  if (!nzchar(value)) return(default)
+  normalizePath(value, mustWork = FALSE)
+}
+
+# Read-only material shipped with a release: BUILD_INFO.json, notices, docs.
+ufvs_resources_dir <- function() ufvs_layout_dir("UFVS_RESOURCES_DIR", ufvs_root())
+
 # A release has its own R runtime, package library, and platform-specific FVS
 # engine. Keep this test in one place so the launcher, app, and data paths
 # cannot accidentally disagree about whether the app is portable.
@@ -17,12 +32,63 @@ ufvs_is_release <- function() {
   if (!is.null(override)) return(isTRUE(override))
   env <- tolower(Sys.getenv("UFVS_RELEASE", unset = ""))
   if (env %in% c("1", "true", "yes", "y")) return(TRUE)
-  root <- ufvs_root()
-  file.exists(file.path(root, "BUILD_INFO.json")) &&
-    dir.exists(file.path(root, "runtime"))
+  file.exists(file.path(ufvs_resources_dir(), "BUILD_INFO.json")) &&
+    dir.exists(ufvs_runtime_dir())
 }
 
-ufvs_release_info_path <- function() file.path(ufvs_root(), "BUILD_INFO.json")
+ufvs_release_info_path <- function() file.path(ufvs_resources_dir(), "BUILD_INFO.json")
+
+# --- desktop lifecycle ---------------------------------------------------------
+# In a packaged release the browser window *is* the application window. When the
+# user closes it, uFVS has to exit: otherwise a headless R process and any FVS
+# workers it started would keep running with nothing to show for them. The
+# launchers export UFVS_DESKTOP to ask for that behaviour. A developer running
+# shiny::runApp() from an R session never sets it, so closing a tab during
+# development still leaves the app running.
+ufvs_desktop_mode <- function() {
+  tolower(Sys.getenv("UFVS_DESKTOP", unset = "")) %in% c("1", "true", "yes", "y")
+}
+
+#' Grace period before an empty application quits.
+#'
+#' A page reload ends one session and starts another a moment later, so quitting
+#' the instant the count reaches zero would kill the app whenever the user hits
+#' refresh. The wait is what distinguishes a reload from a close.
+ufvs_idle_shutdown_seconds <- function() {
+  v <- suppressWarnings(as.numeric(Sys.getenv("UFVS_IDLE_SECONDS", unset = "")))
+  if (length(v) != 1L || is.na(v) || v < 1) 10 else v
+}
+
+.ufvs_lifecycle <- new.env(parent = emptyenv())
+.ufvs_lifecycle$sessions <- 0L
+
+#' Tie the lifetime of a packaged uFVS process to its browser windows.
+ufvs_register_desktop_lifecycle <- function(session) {
+  if (!ufvs_desktop_mode()) return(invisible(FALSE))
+  .ufvs_lifecycle$sessions <- .ufvs_lifecycle$sessions + 1L
+
+  quit_now <- function() {
+    if (.ufvs_lifecycle$sessions > 0L) return(invisible(NULL))
+    message("uFVS: last browser window closed; shutting down.")
+    # stopApp() unwinds runApp() so its own cleanup runs. If it is ever called
+    # from outside an app context it raises, and the process must still exit,
+    # or closing the window would leave uFVS running invisibly forever.
+    ok <- tryCatch({ shiny::stopApp(); TRUE }, error = function(e) FALSE)
+    if (!ok) quit(save = "no", status = 0L, runLast = FALSE)
+    invisible(NULL)
+  }
+
+  session$onSessionEnded(function() {
+    .ufvs_lifecycle$sessions <- max(0L, .ufvs_lifecycle$sessions - 1L)
+    if (.ufvs_lifecycle$sessions > 0L) return(invisible(NULL))
+    if (requireNamespace("later", quietly = TRUE)) {
+      later::later(quit_now, delay = ufvs_idle_shutdown_seconds())
+    } else {
+      quit_now()
+    }
+  })
+  invisible(TRUE)
+}
 
 ufvs_release_info <- function() {
   p <- ufvs_release_info_path()
@@ -31,8 +97,12 @@ ufvs_release_info <- function() {
   if (inherits(out, "try-error") || !is.list(out)) NULL else out
 }
 
-ufvs_runtime_dir <- function() file.path(ufvs_root(), "runtime")
-ufvs_bundled_library <- function() file.path(ufvs_root(), "library")
+ufvs_runtime_dir <- function() {
+  ufvs_layout_dir("UFVS_RUNTIME_DIR", file.path(ufvs_root(), "runtime"))
+}
+ufvs_bundled_library <- function() {
+  ufvs_layout_dir("UFVS_LIBRARY_DIR", file.path(ufvs_root(), "library"))
+}
 
 # This is the path callr workers should inherit in a release.  The macOS build
 # supplies a relocatable wrapper; Windows uses the bundled Rscript.exe.
@@ -208,8 +278,11 @@ species_green_weight <- function() {
 # tables from config/; only the mutable setting moves out of the distribution.
 ufvs_engine_config_path <- function() file.path(ufvs_user_data_dir(), "engine.json")
 
-#' Directory holding FVS binaries built by tools/build_fvs.sh.
-ufvs_engine_dir <- function() file.path(ufvs_root(), "engine")
+#' Directory holding FVS binaries: engine/ in a source checkout, and the
+#' packaged fvs/ directory when a release launcher names it.
+ufvs_engine_dir <- function() {
+  ufvs_layout_dir("UFVS_FVS_DIR", file.path(ufvs_root(), "engine"))
+}
 
 #' Whether a file can be launched on this platform.
 engine_is_executable <- function(path) {

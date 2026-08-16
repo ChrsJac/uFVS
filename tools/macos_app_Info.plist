@@ -8,6 +8,8 @@
 	<string>uFVS</string>
 	<key>CFBundleExecutable</key>
 	<string>uFVS</string>
+	<key>CFBundleIconFile</key>
+	<string>uFVS</string>
 	<key>CFBundleIdentifier</key>
 	<string>org.ufvs.desktop</string>
 	<key>CFBundleInfoDictionaryVersion</key>

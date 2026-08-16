@@ -10,12 +10,20 @@
 #         or: Rscript -e 'shiny::runApp(".", launch.browser=TRUE)'
 # ------------------------------------------------------------------------------
 
-# Set the root and bundled package library before loading any package. Release
-# launchers set UFVS_RELEASE and provide a private library; a source checkout
-# continues to use the normal R library paths.
+# Set the root and private package library before loading any package. Packaged
+# launchers export UFVS_RELEASE and UFVS_LIBRARY_DIR, because in a release the
+# library lives outside the application directory; a source checkout sets
+# neither and continues to use the normal R library paths.
+#
+# R/01_config.R repeats this resolution for the rest of the application. It has
+# to be inlined here because nothing has been sourced yet.
 options(ufvs.root = normalizePath(getwd(), mustWork = TRUE))
-bundled_library <- file.path(getOption("ufvs.root"), "library")
+bundled_library <- Sys.getenv("UFVS_LIBRARY_DIR", unset = "")
+if (!nzchar(bundled_library)) {
+  bundled_library <- file.path(getOption("ufvs.root"), "library")
+}
 if (dir.exists(bundled_library)) {
+  bundled_library <- normalizePath(bundled_library, mustWork = FALSE)
   .libPaths(unique(c(bundled_library, .libPaths())))
   Sys.setenv(R_LIBS_USER = bundled_library)
 }

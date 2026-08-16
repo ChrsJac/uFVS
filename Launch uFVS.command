@@ -1,9 +1,10 @@
 #!/bin/bash
 # ------------------------------------------------------------------------------
-# Double-click this file in Finder to start uFVS in a Terminal window.
+# DEVELOPMENT launcher. It uses the R installed on this machine and the
+# packages in your own R library, and runs the source checkout it sits in.
 #
-# Use this instead of uFVS.app when you want to watch the output, or when
-# something is going wrong and you need to see the error.
+# It is not what a released uFVS.app does: that carries its own R runtime and
+# never looks at a system R. See docs/RELEASE_BUILD.md.
 #
 # Press Ctrl-C in the Terminal window to stop the application.
 # ------------------------------------------------------------------------------

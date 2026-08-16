@@ -56,13 +56,27 @@ ones; the reverse is never true.
 
 ## Desktop release boundary
 
-The application source is the same on both desktop platforms. A release adds a
-platform-native R runtime, the strong dependency closure of the tested package
-set, and native FVS executables under `runtime/`, `library/`, and `engine/`.
-Launchers resolve those directories relative to the extracted release root and
-never search for system R or install packages. Mutable projects, datasets, and
-run folders remain in the user's application-data directory so an extracted
-release can run from a read-only folder.
+The application source is the same on both desktop platforms and in a source
+checkout. A release adds a platform-native R runtime, the strong dependency
+closure of the tested package set, and native FVS binaries, arranged to suit
+the platform: beside `uFVS.exe` on Windows, inside `uFVS.app/Contents/Resources`
+on macOS.
+
+Only the launcher knows the packaged shape. It reports it to R through
+`UFVS_APP_DIR`, `UFVS_RUNTIME_DIR`, `UFVS_LIBRARY_DIR`, `UFVS_FVS_DIR` and
+`UFVS_RESOURCES_DIR`; `01_config` resolves every packaged path through those,
+falling back to the directories beside `app.R` when they are unset. That
+fallback is what keeps development mode working unchanged, and it is why a
+release never has to search for system R or install packages.
+
+Mutable projects, datasets, and run folders remain in the user's
+application-data directory, so an extracted release can run from a read-only
+folder.
+
+`ufvs_register_desktop_lifecycle()` ties a packaged process to its browser
+windows: the last window closing stops the application, which is what makes a
+local Shiny server behave like a desktop app. It is inert unless the launcher
+sets `UFVS_DESKTOP`. See `docs/RELEASE_BUILD.md`.
 
 ## Two rules the code is organized around
 

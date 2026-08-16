@@ -20,6 +20,13 @@ config/engine.json
 Rplots.pdf
 release/
 
+# Packaged-build outputs. The launcher binary and the bundle icon are compiled
+# and generated during a release build; only their sources belong in the tree.
+*.exe
+*.iconset/
+uFVS.app/
+tools/windows/*.o
+
 # FVS output artefacts that can land in the working directory
 *.out
 *.sum

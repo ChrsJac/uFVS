@@ -10,35 +10,51 @@ value_for <- function(flag, default = "") {
   if (!is.na(i) && i < length(args)) args[i + 1L] else default
 }
 
-root <- value_for("--root")
-engine <- value_for("--engine", file.path(root, "engine", "FVSsn"))
-if (!nzchar(root) || !dir.exists(root)) stop("--root must name the staged release.", call. = FALSE)
+env_or <- function(name, default) {
+  v <- Sys.getenv(name, unset = "")
+  if (nzchar(v)) v else default
+}
+
 canonical_path <- function(path) {
   path <- normalizePath(path, mustWork = TRUE)
   path <- chartr("\\", "/", path)
   if (.Platform$OS.type == "windows") path <- tolower(path)
   sub("/+$", "", path)
 }
-root <- canonical_path(root)
-engine <- canonical_path(engine)
-root_prefix <- paste0(root, "/")
-if (!(identical(engine, root) || startsWith(engine, root_prefix)))
-  stop("Smoke engine is outside the staged release.", call. = FALSE)
+contains_path <- function(parent, child) {
+  identical(child, parent) || startsWith(child, paste0(parent, "/"))
+}
 
-setwd(root)
-options(ufvs.root = root, ufvs.release = TRUE)
-library_dir <- file.path(root, "library")
-if (dir.exists(library_dir)) .libPaths(unique(c(library_dir, .libPaths())))
+# The application directory and the bundle that has to contain everything the
+# test touches. The caller exports the same variables the launchers export.
+app_dir <- value_for("--app", env_or("UFVS_APP_DIR", ""))
+if (!nzchar(app_dir) || !dir.exists(app_dir))
+  stop("Pass --app or export UFVS_APP_DIR.", call. = FALSE)
+app_dir <- canonical_path(app_dir)
+bundle <- canonical_path(value_for("--bundle", app_dir))
+
+fvs_dir <- env_or("UFVS_FVS_DIR", file.path(app_dir, "engine"))
+default_engine <- file.path(fvs_dir, if (.Platform$OS.type == "windows") "FVSsn.exe" else "FVSsn")
+engine <- canonical_path(value_for("--engine", default_engine))
+# A release that reaches outside its own bundle for the engine is not portable,
+# so this is a build failure rather than a warning.
+if (!contains_path(bundle, engine))
+  stop("Smoke engine is outside the staged bundle: ", engine, call. = FALSE)
+
+setwd(app_dir)
+options(ufvs.root = app_dir, ufvs.release = TRUE)
+library_dir <- env_or("UFVS_LIBRARY_DIR", file.path(app_dir, "library"))
+if (dir.exists(library_dir)) .libPaths(unique(c(canonical_path(library_dir), .libPaths())))
 suppressPackageStartupMessages({
   library(shiny); library(ggplot2); library(jsonlite); library(DBI)
   library(RSQLite); library(readxl); library(callr); library(digest)
 })
-for (f in sort(list.files(file.path(root, "R"), pattern = "[.]R$", full.names = TRUE)))
+for (f in sort(list.files(file.path(app_dir, "R"), pattern = "[.]R$", full.names = TRUE)))
   source(f)
 
-runtime_root <- canonical_path(file.path(root, "runtime"))
+runtime_root <- canonical_path(env_or("UFVS_RUNTIME_DIR", file.path(app_dir, "runtime")))
 r_home <- canonical_path(R.home())
-if (!(identical(r_home, runtime_root) || startsWith(r_home, paste0(runtime_root, "/"))))
+if (!contains_path(runtime_root, r_home))
   stop("The smoke test is not using the staged R runtime: ", R.home(), call. = FALSE)
 
 stands <- data.frame(

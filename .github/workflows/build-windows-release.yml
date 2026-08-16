@@ -91,58 +91,55 @@ jobs:
       - name: Re-test the extracted Windows ZIP
         shell: pwsh
         run: |
-          $verify = Join-Path $env:RUNNER_TEMP "ufvs-windows-verify"
+          # Extract to a path containing a space: a user's Downloads folder
+          # frequently has one, and it must not break anything.
+          $verify = Join-Path $env:RUNNER_TEMP "ufvs windows verify"
           if (Test-Path $verify) { Remove-Item -LiteralPath $verify -Recurse -Force }
           Expand-Archive -LiteralPath "$env:GITHUB_WORKSPACE\release\uFVS-Windows-x64.zip" -DestinationPath $verify -Force
-          $stagedRscript = Join-Path $verify "runtime\R\bin\Rscript.exe"
-          if (!(Test-Path $stagedRscript)) { throw "The extracted ZIP has no bundled Rscript.exe." }
-          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\release_self_test.R" --root $verify
-          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows release self-test failed." }
-          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\fvs_smoke_test.R" --root $verify --engine (Join-Path $verify "engine\FVSsn.exe")
-          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows FVS smoke test failed." }
-          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\release_http_smoke_test.R" --root $verify --port 18766
-          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows app HTTP smoke test failed." }
-          if (!(Test-Path (Join-Path $verify "Start uFVS.bat"))) { throw "Start uFVS.bat is missing." }
-          "Bundled R home: $(& $stagedRscript -e 'cat(R.home())')" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "Bundled engine: $(Join-Path $verify 'engine\FVSsn.exe')" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          $home_ = (Get-ChildItem -LiteralPath $verify -Directory | Select-Object -First 1).FullName
+          if (-not $home_) { throw "The extracted ZIP has no uFVS folder." }
 
-      - name: Launch extracted package through Start uFVS.bat
+          $launcher = Join-Path $home_ "uFVS.exe"
+          $stagedRscript = Join-Path $home_ "runtime\R\bin\Rscript.exe"
+          if (!(Test-Path $launcher)) { throw "The extracted ZIP has no uFVS.exe." }
+          if (!(Test-Path $stagedRscript)) { throw "The extracted ZIP has no bundled Rscript.exe." }
+
+          $env:UFVS_RELEASE = "1"
+          $env:UFVS_APP_DIR = Join-Path $home_ "app"
+          $env:UFVS_RUNTIME_DIR = Join-Path $home_ "runtime"
+          $env:UFVS_LIBRARY_DIR = Join-Path $home_ "runtime\R-library"
+          $env:UFVS_FVS_DIR = Join-Path $home_ "fvs"
+          $env:UFVS_RESOURCES_DIR = Join-Path $home_ "resources"
+          $env:R_LIBS_USER = $env:UFVS_LIBRARY_DIR
+          $env:R_HOME = $null
+
+          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\release_self_test.R"
+          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows release self-test failed." }
+
+          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\fvs_smoke_test.R" --bundle $home_ --engine (Join-Path $home_ "fvs\FVSsn.exe")
+          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows FVS smoke test failed." }
+
+          # Drive the real uFVS.exe the way a double-click does, and confirm it
+          # takes R and any FVS worker down with it when it closes.
+          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\release_http_smoke_test.R" --launcher $launcher
+          if ($LASTEXITCODE -ne 0) { throw "Extracted uFVS.exe launcher smoke test failed." }
+
+          & $stagedRscript "$env:GITHUB_WORKSPACE\tools\acceptance_test.R"
+          if ($LASTEXITCODE -ne 0) { throw "Extracted Windows acceptance test failed." }
+
+          "Launcher: $launcher" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Bundled R home: $(& $stagedRscript -e 'cat(R.home())')" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Bundled engine: $(Join-Path $home_ 'fvs\FVSsn.exe')" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Confirm no orphan processes remain
         shell: pwsh
         run: |
-          $verify = Join-Path $env:RUNNER_TEMP "ufvs-windows-verify"
-          $port = 18767
-          $env:UFVS_PORT = "$port"
-          $env:UFVS_LAUNCH_BROWSER = "0"
-          $env:UFVS_NO_PAUSE = "1"
-          $launcher = Join-Path $verify "Start uFVS.bat"
-          $commandLine = '/d /c call "' + $launcher + '"'
-          $stdoutLog = Join-Path $env:RUNNER_TEMP "ufvs-start-batch.stdout.log"
-          $stderrLog = Join-Path $env:RUNNER_TEMP "ufvs-start-batch.stderr.log"
-          $process = Start-Process -FilePath $env:ComSpec `
-            -ArgumentList $commandLine `
-            -WorkingDirectory $verify -PassThru -WindowStyle Hidden `
-            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-          try {
-            $passed = $false
-            for ($attempt = 1; $attempt -le 60; $attempt++) {
-              try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 2
-                if ($response.StatusCode -eq 200 -and $response.Content -match "uFVS|shiny") {
-                  $passed = $true
-                  break
-                }
-              } catch { }
-              Start-Sleep -Milliseconds 500
-            }
-            if (!$passed) {
-              if (Test-Path $stdoutLog) { Get-Content $stdoutLog }
-              if (Test-Path $stderrLog) { Get-Content $stderrLog }
-              throw "Start uFVS.bat did not serve the local uFVS page."
-            }
-            "Start uFVS.bat launch smoke passed at http://127.0.0.1:$port/" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          } finally {
-            & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
+          $stray = Get-Process -Name "Rscript", "R", "FVSsn", "uFVS" -ErrorAction SilentlyContinue
+          if ($stray) {
+            $stray | Format-Table Id, ProcessName, Path
+            throw "Processes were left running after the packaged tests."
           }
+          "No orphan R/FVS processes after the packaged tests." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -188,22 +185,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          verify="$RUNNER_TEMP/ufvs-macos-verify"
+          # A path with spaces, because /Applications and Downloads folders have
+          # them and the bundle must not care.
+          verify="$RUNNER_TEMP/ufvs macos verify"
           rm -rf "$verify"
           mkdir -p "$verify"
           ditto -x -k "$GITHUB_WORKSPACE/release/uFVS-macOS-arm64.zip" "$verify"
-          stage=$(find "$verify" -maxdepth 1 -type d -name 'uFVS-*' -print -quit)
-          test -n "$stage"
-          test -x "$stage/runtime/Rscript"
-          test -x "$stage/uFVS.app/Contents/MacOS/uFVS"
-          UFVS_RELEASE=1 R_LIBS_USER="$stage/library" "$stage/runtime/Rscript" \
-            "$GITHUB_WORKSPACE/tools/release_self_test.R" --root "$stage"
-          UFVS_RELEASE=1 R_LIBS_USER="$stage/library" "$stage/runtime/Rscript" \
-            "$GITHUB_WORKSPACE/tools/fvs_smoke_test.R" --root "$stage" --engine "$stage/engine/FVSsn"
-          UFVS_RELEASE=1 R_LIBS_USER="$stage/library" "$stage/runtime/Rscript" \
-            "$GITHUB_WORKSPACE/tools/release_http_smoke_test.R" --root "$stage" --port 18766
-          echo "Bundled R home: $($stage/runtime/Rscript -e 'cat(R.home())')" >> "$GITHUB_STEP_SUMMARY"
-          echo "Bundled engine: $stage/engine/FVSsn" >> "$GITHUB_STEP_SUMMARY"
+
+          app="$verify/uFVS.app"
+          res="$app/Contents/Resources"
+          test -d "$app"
+          test -x "$app/Contents/MacOS/uFVS"
+          test -x "$res/R/Rscript"
+          test -d "$res/app" && test -d "$res/R-library" && test -d "$res/fvs"
+
+          export UFVS_RELEASE=1
+          export UFVS_APP_DIR="$res/app"
+          export UFVS_RUNTIME_DIR="$res/R"
+          export UFVS_LIBRARY_DIR="$res/R-library"
+          export UFVS_FVS_DIR="$res/fvs"
+          export UFVS_RESOURCES_DIR="$res"
+          export R_LIBS_USER="$res/R-library"
+
+          "$res/R/Rscript" "$GITHUB_WORKSPACE/tools/release_self_test.R"
+          "$res/R/Rscript" "$GITHUB_WORKSPACE/tools/fvs_smoke_test.R" \
+            --bundle "$app" --engine "$res/fvs/FVSsn"
+          # Drive the real uFVS.app launcher, and confirm it takes R and any FVS
+          # worker down with it when it closes.
+          "$res/R/Rscript" "$GITHUB_WORKSPACE/tools/release_http_smoke_test.R" \
+            --launcher "$app/Contents/MacOS/uFVS"
+          "$res/R/Rscript" "$GITHUB_WORKSPACE/tools/acceptance_test.R"
+
+          echo "Bundled R home: $("$res/R/Rscript" -e 'cat(R.home())')" >> "$GITHUB_STEP_SUMMARY"
+          echo "Bundled engine: $res/fvs/FVSsn" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Confirm no orphan processes remain
+        shell: bash
+        run: |
+          if pgrep -f "uFVS.app/Contents" >/dev/null 2>&1; then
+            ps -ax -o pid,command | grep "uFVS.app/Contents" | grep -v grep
+            echo "Processes were left running after the packaged tests." >&2
+            exit 1
+          fi
+          echo "No orphan R/FVS processes after the packaged tests." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4

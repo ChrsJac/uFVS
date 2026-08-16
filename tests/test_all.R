@@ -599,6 +599,77 @@ ok("a mismatched configured executable is refused",
    !resolve_engine_exe(list(mode = "executable", path = sn_exe), "so")$ok)
 
 # ------------------------------------------------------------------------------
+section("Packaged layout resolution")
+
+# A source checkout sets none of the layout variables and must keep using the
+# directories beside app.R. Anything else would break development mode.
+layout_vars <- c("UFVS_APP_DIR", "UFVS_RUNTIME_DIR", "UFVS_LIBRARY_DIR",
+                 "UFVS_FVS_DIR", "UFVS_RESOURCES_DIR")
+saved_layout <- Sys.getenv(layout_vars, unset = NA_character_)
+for (v in layout_vars) Sys.unsetenv(v)
+
+root <- ufvs_root()
+ok("without launcher variables the engine directory sits beside the app",
+   identical(ufvs_engine_dir(), file.path(root, "engine")))
+ok("without launcher variables the library sits beside the app",
+   identical(ufvs_bundled_library(), file.path(root, "library")))
+ok("without launcher variables the runtime sits beside the app",
+   identical(ufvs_runtime_dir(), file.path(root, "runtime")))
+ok("without launcher variables resources are the app root",
+   identical(ufvs_resources_dir(), root))
+
+# A packaged launcher relocates all four, including onto paths with spaces.
+layout_root <- file.path(tempdir(), "uFVS layout probe")
+for (sub in c("app", "R", "R-library", "fvs", "res")) {
+  dir.create(file.path(layout_root, sub), showWarnings = FALSE, recursive = TRUE)
+}
+Sys.setenv(UFVS_FVS_DIR = file.path(layout_root, "fvs"),
+           UFVS_LIBRARY_DIR = file.path(layout_root, "R-library"),
+           UFVS_RUNTIME_DIR = file.path(layout_root, "R"),
+           UFVS_RESOURCES_DIR = file.path(layout_root, "res"))
+ok("a launcher can relocate the FVS directory",
+   identical(ufvs_engine_dir(), normalizePath(file.path(layout_root, "fvs"))))
+ok("a launcher can relocate the package library",
+   identical(ufvs_bundled_library(), normalizePath(file.path(layout_root, "R-library"))))
+ok("a launcher can relocate the R runtime",
+   identical(ufvs_runtime_dir(), normalizePath(file.path(layout_root, "R"))))
+ok("BUILD_INFO.json is read from the resources directory",
+   identical(ufvs_release_info_path(),
+             file.path(normalizePath(file.path(layout_root, "res")), "BUILD_INFO.json")))
+
+# A relocated bundle is only a release once its build metadata is really there.
+ok("a relocated layout without BUILD_INFO.json is not a release",
+   !ufvs_is_release())
+writeLines("{}", file.path(layout_root, "res", "BUILD_INFO.json"))
+ok("a relocated layout with BUILD_INFO.json and a runtime is a release",
+   ufvs_is_release())
+
+for (v in layout_vars) {
+  if (is.na(saved_layout[[v]])) {
+    Sys.unsetenv(v)
+  } else {
+    do.call(Sys.setenv, stats::setNames(list(saved_layout[[v]]), v))
+  }
+}
+unlink(layout_root, recursive = TRUE, force = TRUE)
+
+section("Desktop lifecycle")
+
+# Closing a browser tab must never stop a developer's shiny::runApp() session.
+Sys.unsetenv("UFVS_DESKTOP")
+ok("development mode does not tie the process to the browser", !ufvs_desktop_mode())
+Sys.setenv(UFVS_DESKTOP = "1")
+ok("a launcher can ask for desktop lifecycle", ufvs_desktop_mode())
+ok("the idle grace period defaults to something a reload survives",
+   ufvs_idle_shutdown_seconds() >= 5)
+Sys.setenv(UFVS_IDLE_SECONDS = "3")
+ok("the idle grace period is configurable", ufvs_idle_shutdown_seconds() == 3)
+Sys.setenv(UFVS_IDLE_SECONDS = "nonsense")
+ok("a nonsense grace period falls back to the default",
+   ufvs_idle_shutdown_seconds() >= 5)
+Sys.unsetenv("UFVS_DESKTOP"); Sys.unsetenv("UFVS_IDLE_SECONDS")
+
+# ------------------------------------------------------------------------------
 cat(sprintf("\n%s\n%d passed, %d failed\n", strrep("-", 60), PASS, FAIL))
 if (FAIL > 0) {
   cat("Failures:\n"); cat(paste0("  - ", MSGS, collapse = "\n"), "\n")

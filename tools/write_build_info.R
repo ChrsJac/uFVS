@@ -8,11 +8,19 @@ value_for <- function(flag, default = "") {
   if (!is.na(i) && i < length(args)) args[i + 1L] else default
 }
 
+# --root is where BUILD_INFO.json is written (the packaged resources directory);
+# --app and --library name the application and package library, which no longer
+# sit inside it.
 root <- value_for("--root")
 platform <- value_for("--platform", "unknown")
 architecture <- value_for("--architecture", Sys.info()[["machine"]])
 engine_dir <- value_for("--engine-dir", file.path(root, "engine"))
 if (!nzchar(root) || !dir.exists(root)) stop("--root must name a release directory.", call. = FALSE)
+app_dir <- value_for("--app", file.path(root, "R"))
+if (basename(app_dir) != "R" && dir.exists(file.path(app_dir, "R"))) {
+  app_dir <- file.path(app_dir, "R")
+}
+if (!dir.exists(app_dir)) stop("--app must name the application directory.", call. = FALSE)
 
 fvs_revision <- value_for("--fvs-source-revision",
                           Sys.getenv("UFVS_FVS_SOURCE_REVISION", unset = "unknown"))
@@ -25,7 +33,7 @@ fvs_license_url <- Sys.getenv(
 fvs_toolchain <- value_for("--fvs-toolchain",
                            Sys.getenv("UFVS_FVS_TOOLCHAIN", unset = "not recorded"))
 
-version_line <- grep("^UFVS_VERSION[[:space:]]*<-", readLines(file.path(root, "R", "01_config.R")),
+version_line <- grep("^UFVS_VERSION[[:space:]]*<-", readLines(file.path(app_dir, "01_config.R")),
                      value = TRUE)
 version <- if (length(version_line)) sub(".*[\"']([^\"']+)[\"'].*", "\\1", version_line[1]) else "unknown"
 
@@ -45,7 +53,7 @@ engine_records <- lapply(engine_files, function(path) {
 })
 names(engine_records) <- NULL
 
-library_dir <- file.path(root, "library")
+library_dir <- value_for("--library", file.path(root, "library"))
 pkg_dirs <- if (dir.exists(library_dir)) list.dirs(library_dir, recursive = FALSE, full.names = TRUE) else character(0)
 pkg_versions <- list()
 for (p in pkg_dirs) {

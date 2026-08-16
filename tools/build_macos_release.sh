@@ -1,8 +1,20 @@
 #!/bin/bash
-# Build a self-contained Apple Silicon uFVS release.
+# Build a self-contained Apple Silicon uFVS.app.
+#
+# Everything the application needs at runtime ends up inside the bundle:
+#
+#   uFVS.app/Contents/
+#     MacOS/uFVS            the launcher
+#     Resources/app/        the Shiny application
+#     Resources/R/          the private R runtime (a copied R.framework)
+#     Resources/R-library/  the private package library
+#     Resources/fvs/        the FVS engine and its Fortran libraries
+#     Resources/            BUILD_INFO.json, notices, docs
 #
 # The build machine needs R 4.x, the tested package set, and an arm64 FVS
-# executable. The resulting ZIP does not use any of those paths at runtime.
+# executable. None of those paths are used at runtime: the Mach-O patching
+# below rewrites every reference to the build machine's R into a bundle-relative
+# one, and the build fails if any is left.
 
 set -euo pipefail
 
@@ -26,7 +38,7 @@ while [ "$#" -gt 0 ]; do
     --skip-self-test) SKIP_SELF_TEST=1; shift ;;
     --skip-fvs-smoke-test) SKIP_FVS_SMOKE_TEST=1; shift ;;
     -h|--help)
-      sed -n '1,18p' "$0"
+      sed -n '1,20p' "$0"
       echo "Usage: $0 [--out DIR] [--r-home R_HOME] [--engine-dir DIR] [--fvs-source-revision SHA] [--skip-self-test] [--skip-fvs-smoke-test]"
       exit 0
       ;;
@@ -78,41 +90,69 @@ mkdir -p "$OUT_DIR"
 OUT_DIR=$(CDPATH= cd -- "$OUT_DIR" && pwd)
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/ufvs-macos-release.XXXXXX")
 STAGE="$TEMP_ROOT/uFVS-$VERSION-macOS-arm64"
+APP="$STAGE/uFVS.app"
+CONTENTS="$APP/Contents"
+RES="$CONTENTS/Resources"
 cleanup() { rm -rf "$TEMP_ROOT"; }
 trap cleanup EXIT INT TERM
 
-mkdir -p "$STAGE/tools" "$STAGE/engine" "$STAGE/THIRD_PARTY" "$STAGE/runtime/R.framework/Versions" \
-  "$STAGE/uFVS.app/Contents/MacOS"
-cp -p "$ROOT/app.R" "$ROOT/README.md" "$ROOT/NOTICE.md" "$ROOT/LICENSE" "$ROOT/CITATION.cff" "$STAGE/"
-ditto "$ROOT/R/." "$STAGE/R"
-ditto "$ROOT/config/." "$STAGE/config"
-ditto "$ROOT/www/." "$STAGE/www"
-if [ -d "$ROOT/docs" ]; then ditto "$ROOT/docs/." "$STAGE/docs"; fi
-ditto "$ROOT/THIRD_PARTY/." "$STAGE/THIRD_PARTY"
-cp -p "$ROOT/tools/launch.R" "$STAGE/tools/launch.R"
-ditto "$ENGINE_DIR/." "$STAGE/engine"
+mkdir -p "$CONTENTS/MacOS" "$RES/app" "$RES/fvs" "$RES/THIRD_PARTY" \
+  "$RES/R/R.framework/Versions"
 
+# --- the application ----------------------------------------------------------
+cp -p "$ROOT/app.R" "$RES/app/app.R"
+cp -p "$ROOT/tools/launch.R" "$RES/app/launch.R"
+ditto "$ROOT/R/." "$RES/app/R"
+ditto "$ROOT/config/." "$RES/app/config"
+ditto "$ROOT/www/." "$RES/app/www"
+
+# --- read-only resources ------------------------------------------------------
+cp -p "$ROOT/README.md" "$ROOT/NOTICE.md" "$ROOT/LICENSE" "$ROOT/CITATION.cff" "$RES/"
+ditto "$ROOT/THIRD_PARTY/." "$RES/THIRD_PARTY"
+if [ -d "$ROOT/docs" ]; then ditto "$ROOT/docs/." "$RES/docs"; fi
+# Build the bundle icon from the checked-in logo, so no binary icon asset has to
+# live in the repository and the icon always matches the application's mark.
+if [ -f "$ROOT/www/ufvs-mark.png" ]; then
+  ICONSET="$TEMP_ROOT/uFVS.iconset"
+  mkdir -p "$ICONSET"
+  for size in 16 32 64 128 256 512; do
+    sips -z "$size" "$size" "$ROOT/www/ufvs-mark.png" \
+      --out "$ICONSET/icon_${size}x${size}.png" >/dev/null 2>&1 || true
+    double=$((size * 2))
+    sips -z "$double" "$double" "$ROOT/www/ufvs-mark.png" \
+      --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null 2>&1 || true
+  done
+  # iconutil accepts 16, 32, 128, 256 and 512 at 1x and 2x; 64 is not a member
+  # of the set and makes it reject the whole iconset.
+  rm -f "$ICONSET/icon_64x64.png" "$ICONSET/icon_64x64@2x.png"
+  iconutil -c icns "$ICONSET" -o "$RES/uFVS.icns" >/dev/null 2>&1 || \
+    echo "note: the bundle icon could not be generated; the default icon will be used."
+fi
+
+# --- the FVS engine -----------------------------------------------------------
+ditto "$ENGINE_DIR/." "$RES/fvs"
+rm -f "$RES/fvs/README-WINDOWS.txt"
+
+# --- the private R runtime ----------------------------------------------------
 # Copy the complete tested R framework version, then expose it through the
 # standard Current symlink expected by R's internal directory layout.
-ditto "$R_VERSION_ROOT/." "$STAGE/runtime/R.framework/Versions/$R_VERSION"
-( cd "$STAGE/runtime/R.framework/Versions" && ln -s "$R_VERSION" Current )
+ditto "$R_VERSION_ROOT/." "$RES/R/R.framework/Versions/$R_VERSION"
+( cd "$RES/R/R.framework/Versions" && ln -s "$R_VERSION" Current )
 
-cp -p "$ROOT/tools/bundled_rscript.sh" "$STAGE/runtime/Rscript"
+cp -p "$ROOT/tools/bundled_rscript.sh" "$RES/R/Rscript"
 cp -p "$ROOT/tools/bundled_rscript.sh" \
-  "$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/bin/Rscript"
+  "$RES/R/R.framework/Versions/$R_VERSION/Resources/bin/Rscript"
 cp -p "$ROOT/tools/bundled_rscript.sh" \
-  "$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/bin/R"
-chmod 755 "$STAGE/runtime/Rscript" \
-  "$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/bin/Rscript" \
-  "$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/bin/R"
+  "$RES/R/R.framework/Versions/$R_VERSION/Resources/bin/R"
+chmod 755 "$RES/R/Rscript" \
+  "$RES/R/R.framework/Versions/$R_VERSION/Resources/bin/Rscript" \
+  "$RES/R/R.framework/Versions/$R_VERSION/Resources/bin/R"
 
-"$BUILDER_RSCRIPT" "$ROOT/tools/stage_r_packages.R" --target "$STAGE/library"
+"$BUILDER_RSCRIPT" "$ROOT/tools/stage_r_packages.R" --target "$RES/R-library"
 "$BUILDER_RSCRIPT" "$ROOT/tools/write_third_party_inventory.R" \
-  --library "$STAGE/library" --target "$STAGE/THIRD_PARTY"
+  --library "$RES/R-library" --target "$RES/THIRD_PARTY"
 
-R_LIB="$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/lib"
-R_EXEC="$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources/bin/exec/R"
-STAGED_R_HOME="$STAGE/runtime/R.framework/Versions/$R_VERSION/Resources"
+STAGED_R_HOME="$RES/R/R.framework/Versions/$R_VERSION/Resources"
 ORIG_R_LIB="$R_HOME/lib"
 
 patch_core_macho() {
@@ -145,8 +185,11 @@ patch_core_macho() {
 while IFS= read -r f; do
   file "$f" | grep -q 'Mach-O' || continue
   patch_core_macho "$f"
-done < <(find "$STAGE/runtime" -type f -print)
+done < <(find "$RES/R" -type f -print)
 
+# A staged package's shared object sits at
+#   Resources/R-library/<pkg>/libs/<file>
+# so three levels up is Contents/Resources, from which the runtime is reachable.
 patch_package_macho() {
   local f="$1" dep base replacement
   [ -f "$f" ] || return 0
@@ -156,7 +199,7 @@ patch_package_macho() {
     case "$dep" in
       "$ORIG_R_LIB"/*)
         base=$(basename "$dep")
-        replacement="@loader_path/../../../runtime/R.framework/Versions/$R_VERSION/Resources/lib/$base"
+        replacement="@loader_path/../../../R/R.framework/Versions/$R_VERSION/Resources/lib/$base"
         install_name_tool -change "$dep" "$replacement" "$f" 2>/dev/null
         ;;
     esac
@@ -164,11 +207,11 @@ patch_package_macho() {
   codesign -f -s - "$f" >/dev/null 2>&1 || true
 }
 while IFS= read -r f; do patch_package_macho "$f"; done < <(
-  find "$STAGE/library" -type f \( -name '*.so' -o -name '*.dylib' \) -print)
+  find "$RES/R-library" -type f \( -name '*.so' -o -name '*.dylib' \) -print)
 
 # Remove compiler-installation rpaths from the bundled FVS files. The official
 # executable already carries its Fortran libraries beside it; only @loader_path
-# is valid in a moved release.
+# is valid in a moved bundle.
 while IFS= read -r f; do
   file "$f" | grep -q 'Mach-O' || continue
   while IFS= read -r rp; do
@@ -176,43 +219,75 @@ while IFS= read -r f; do
     install_name_tool -delete_rpath "$rp" "$f" 2>/dev/null || true
   done < <(otool -l "$f" | awk '$1 == "path" && $2 ~ /^\// {print $2}')
   codesign -f -s - "$f" >/dev/null 2>&1 || true
-done < <(find "$STAGE/engine" -type f -print)
+done < <(find "$RES/fvs" -type f -print)
 
-# Fail the build if any staged extension still names the build machine's R.
+# --- portability audit --------------------------------------------------------
+# A bundle that still names a build-machine path is not portable, however well
+# it runs here. Fail the build rather than ship it.
 leftovers=$(while IFS= read -r f; do
   file "$f" | grep -q 'Mach-O' || continue
   otool -L "$f" 2>/dev/null | grep -F "$ORIG_R_LIB" && echo " in $f"
-done < <(find "$STAGE/runtime" "$STAGE/library" "$STAGE/engine" -type f -print) || true)
+done < <(find "$RES/R" "$RES/R-library" "$RES/fvs" -type f -print) || true)
 if [ -n "$leftovers" ]; then
   echo "Staged Mach-O files still depend on the build machine's R:" >&2
   echo "$leftovers" >&2
   exit 1
 fi
 
-VERSIONED_PLIST="$STAGE/uFVS.app/Contents/Info.plist"
+# The same check for the development machine's home directory and for Homebrew,
+# MacPorts and the system R framework, in any staged Mach-O file.
+machine_paths=$(while IFS= read -r f; do
+  file "$f" | grep -q 'Mach-O' || continue
+  otool -L "$f" 2>/dev/null | sed -n '2,$p' |
+    grep -E "^[[:space:]]+($HOME|/opt/homebrew|/opt/local|/usr/local/(lib|opt)|/Library/Frameworks/R\.framework)/" &&
+    echo " in $f"
+done < <(find "$RES" -type f -print) || true)
+if [ -n "$machine_paths" ]; then
+  echo "Staged Mach-O files still link against build-machine locations:" >&2
+  echo "$machine_paths" >&2
+  exit 1
+fi
+
+# --- the bundle ---------------------------------------------------------------
+VERSIONED_PLIST="$CONTENTS/Info.plist"
 cp -p "$ROOT/tools/macos_app_Info.plist" "$VERSIONED_PLIST"
 sed -i '' -e "s#0.1.0#$VERSION#g" "$VERSIONED_PLIST"
-cp -p "$ROOT/tools/macos_launcher.sh" "$STAGE/uFVS.app/Contents/MacOS/uFVS"
-chmod 755 "$STAGE/uFVS.app/Contents/MacOS/uFVS"
+cp -p "$ROOT/tools/macos_launcher.sh" "$CONTENTS/MacOS/uFVS"
+chmod 755 "$CONTENTS/MacOS/uFVS"
 
 "$BUILDER_RSCRIPT" "$ROOT/tools/write_build_info.R" \
-  --root "$STAGE" --platform "macOS" --architecture "arm64" --engine-dir "$STAGE/engine" \
+  --root "$RES" --app "$RES/app" --library "$RES/R-library" \
+  --platform "macOS" --architecture "arm64" --engine-dir "$RES/fvs" \
   --fvs-source-revision "$FVS_SOURCE_REVISION" --fvs-source-url "$FVS_SOURCE_URL" \
   --fvs-toolchain "$FVS_TOOLCHAIN"
 
+# Ad-hoc sign the bundle last, once nothing else will modify it.
+codesign -f -s - --deep "$APP" >/dev/null 2>&1 || \
+  echo "note: the bundle could not be ad-hoc signed; Gatekeeper may ask the user to confirm."
+
+# --- test the bundle, in the launcher's own environment -----------------------
+export UFVS_RELEASE=1
+export UFVS_APP_DIR="$RES/app"
+export UFVS_RUNTIME_DIR="$RES/R"
+export UFVS_LIBRARY_DIR="$RES/R-library"
+export UFVS_FVS_DIR="$RES/fvs"
+export UFVS_RESOURCES_DIR="$RES"
+export R_LIBS_USER="$RES/R-library"
+
 if [ "$SKIP_SELF_TEST" -eq 0 ]; then
-  UFVS_RELEASE=1 R_LIBS_USER="$STAGE/library" "$STAGE/runtime/Rscript" \
-    "$ROOT/tools/release_self_test.R" --root "$STAGE"
+  "$RES/R/Rscript" "$ROOT/tools/release_self_test.R"
 fi
 
 if [ "$SKIP_FVS_SMOKE_TEST" -eq 0 ]; then
-  UFVS_RELEASE=1 R_LIBS_USER="$STAGE/library" "$STAGE/runtime/Rscript" \
-    "$ROOT/tools/fvs_smoke_test.R" --root "$STAGE" --engine "$STAGE/engine/FVSsn"
-  UFVS_RELEASE=1 R_LIBS_USER="$STAGE/library" "$STAGE/runtime/Rscript" \
-    "$ROOT/tools/release_http_smoke_test.R" --root "$STAGE" --port 18765
+  "$RES/R/Rscript" "$ROOT/tools/fvs_smoke_test.R" \
+    --bundle "$APP" --engine "$RES/fvs/FVSsn"
+  "$RES/R/Rscript" "$ROOT/tools/release_http_smoke_test.R" \
+    --launcher "$CONTENTS/MacOS/uFVS"
+  "$RES/R/Rscript" "$ROOT/tools/acceptance_test.R"
 fi
 
 ZIP="$OUT_DIR/uFVS-macOS-arm64.zip"
 rm -f "$ZIP"
-ditto -c -k --norsrc --keepParent "$STAGE" "$ZIP"
+# --keepParent on the .app itself, so the ZIP expands straight to uFVS.app.
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 echo "Created $ZIP"
